@@ -347,3 +347,90 @@ fn winrar_accepts_our_archives() {
     let report = authoring::create(options, &cancel, quiet()).unwrap();
     check(&report.parts[0], None);
 }
+#[test]
+fn comments_can_be_changed_and_removed() {
+    let root = sample_tree("comment");
+    let inputs = [root.join("input")];
+    let cancel = ReadCancellation::new();
+    let path = root.join("c.rar");
+    authoring::create(request(&path, &inputs, Format::Rar5), &cancel, quiet()).unwrap();
+    let set = |text: &str| {
+        authoring::edit(&path, None, Edit::SetComment(text.into()), &cancel, quiet()).unwrap();
+    };
+    set("first");
+    assert_eq!(open(&path, None).unwrap().comment.as_deref(), Some("first"));
+    set("second, 日本語");
+    assert_eq!(
+        open(&path, None).unwrap().comment.as_deref(),
+        Some("second, 日本語")
+    );
+    set("");
+    assert_eq!(open(&path, None).unwrap().comment, None);
+    assert_eq!(names(&path, None).len(), 6);
+}
+
+#[test]
+fn selecting_a_file_skips_the_others() {
+    let root = scratch("skip");
+    let src = root.join("input");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(src.join("keep.txt"), b"wanted").unwrap();
+    fs::write(src.join("other.bin"), vec![0x5Au8; 50_000]).unwrap();
+    let path = root.join("s.rar");
+    let inputs = [src.clone()];
+    let mut options = request(&path, &inputs, Format::Rar5);
+    options.level = 0;
+    authoring::create(options, &ReadCancellation::new(), quiet()).unwrap();
+
+    // Damage the middle of the unselected file. If selection really skips it,
+    // extracting the other file can't notice.
+    let mut bytes = fs::read(&path).unwrap();
+    let at = bytes.windows(64).position(|w| w == [0x5Au8; 64]).unwrap() + 20_000;
+    bytes[at] ^= 0xFF;
+    fs::write(&path, bytes).unwrap();
+
+    let run = |selected: Option<HashSet<String>>, out: &Path| {
+        engine::extract(
+            ExtractRequest {
+                archive: &path,
+                out_dir: out,
+                password: None,
+                selected,
+                overwrite: false,
+            },
+            &ReadCancellation::new(),
+            quiet(),
+        )
+    };
+    let out = root.join("one");
+    let report = run(Some(HashSet::from(["input/keep.txt".to_owned()])), &out).unwrap();
+    assert_eq!(report.written, 1);
+    assert_eq!(fs::read(out.join("input/keep.txt")).unwrap(), b"wanted");
+    assert!(!out.join("input/other.bin").exists());
+    assert!(run(None, &root.join("all")).is_err());
+}
+
+#[test]
+fn selecting_from_a_solid_archive_still_works() {
+    let root = sample_tree("solid-select");
+    let inputs = [root.join("input")];
+    let path = root.join("s.rar");
+    let mut options = request(&path, &inputs, Format::Rar5);
+    options.solid = true;
+    authoring::create(options, &ReadCancellation::new(), quiet()).unwrap();
+    let out = root.join("x");
+    let report = engine::extract(
+        ExtractRequest {
+            archive: &path,
+            out_dir: &out,
+            password: None,
+            selected: Some(HashSet::from(["input/sub/b.txt".to_owned()])),
+            overwrite: false,
+        },
+        &ReadCancellation::new(),
+        quiet(),
+    )
+    .unwrap();
+    assert_eq!(report.written, 1);
+    assert_eq!(fs::read(out.join("input/sub/b.txt")).unwrap(), vec![7u8; 200_000]);
+}

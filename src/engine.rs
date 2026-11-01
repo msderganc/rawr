@@ -1,9 +1,11 @@
 //! Open, test and extract, independent of the window so it can be tested directly.
+use crate::others::{self, Kind};
 use crate::volumes::{discover_sibling_volumes, missing_parts};
 use rars::filename::{decoded_name, relative_path, LegacyNameEncoding};
 use rars::{
     extract_volumes_with_links, test_volumes_with_options_and_callback, Archive, ArchiveFamily,
     ArchiveReadOptions, ArchiveReader, ErrorKind, ExtractedEntryMeta, ExtractedLink,
+    ExtractionDecision,
     ReadCancellation,
 };
 use std::cell::RefCell;
@@ -11,7 +13,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Component, Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
@@ -84,19 +86,38 @@ pub struct ExtractReport {
 
 pub type ProgressFn = Arc<dyn Fn(Progress) + Send + Sync>;
 
-/// Legacy archives without Unicode names most often come from DOS/OEM tools.
-const LEGACY_FALLBACK: LegacyNameEncoding = LegacyNameEncoding::Cp437;
+/// Old archives don't record their names' code page, so it's a setting. These are
+/// listed in the order Settings offers them.
+const LEGACY_ENCODINGS: [LegacyNameEncoding; 6] = [
+    LegacyNameEncoding::Cp437,
+    LegacyNameEncoding::Cp850,
+    LegacyNameEncoding::Cp852,
+    LegacyNameEncoding::Cp866,
+    LegacyNameEncoding::Windows1252,
+    LegacyNameEncoding::Windows1251,
+];
+
+static LEGACY_ENCODING: AtomicUsize = AtomicUsize::new(0);
+
+pub fn set_legacy_encoding(choice: usize) {
+    LEGACY_ENCODING.store(choice.min(LEGACY_ENCODINGS.len() - 1), Ordering::Relaxed);
+}
+
+/// How a name without Unicode reads in a given encoding. Valid UTF-8 stays as it is.
+pub fn legacy_text(raw: &[u8], unicode: bool, choice: usize) -> String {
+    let decoded = match std::str::from_utf8(raw) {
+        Ok(_) => None,
+        Err(_) => decoded_name(raw, unicode, LEGACY_ENCODINGS.get(choice).copied()).ok(),
+    };
+    String::from_utf8_lossy(decoded.as_deref().unwrap_or(raw)).replace('\\', "/")
+}
 
 pub(crate) fn display_name(family: ArchiveFamily, raw: &[u8], unicode: bool) -> String {
     if family == ArchiveFamily::Rar50Plus {
         // RAR 5 names use '/'; a backslash is a literal character, unusable on Windows.
         return String::from_utf8_lossy(raw).replace('\\', "_");
     }
-    let decoded = match std::str::from_utf8(raw) {
-        Ok(_) => None,
-        Err(_) => decoded_name(raw, unicode, Some(LEGACY_FALLBACK)).ok(),
-    };
-    String::from_utf8_lossy(decoded.as_deref().unwrap_or(raw)).replace('\\', "/")
+    legacy_text(raw, unicode, LEGACY_ENCODING.load(Ordering::Relaxed))
 }
 
 /// The path below the output folder, or why this name must not be written on Windows.
@@ -155,6 +176,10 @@ pub fn open(
     password: Option<&str>,
     cancel: &ReadCancellation,
 ) -> Result<OpenedArchive, AppError> {
+    let kind = others::kind_of(path);
+    if kind != Kind::Rar {
+        return others::open(path, kind, password);
+    }
     let password = password.map(str::as_bytes);
     let (paths, archives) = load(path, password, cancel)?;
     let family = archives[0].family();
@@ -246,7 +271,7 @@ impl Tracker {
         self.report(false);
     }
 
-    fn add(&self, bytes: u64) {
+    pub(crate) fn add(&self, bytes: u64) {
         self.done.fetch_add(bytes, Ordering::Relaxed);
         self.report(false);
     }
@@ -289,7 +314,7 @@ struct Pending {
     modified: Option<std::time::SystemTime>,
 }
 
-struct Extraction<'a> {
+pub(crate) struct Extraction<'a> {
     out_dir: &'a Path,
     staging: PathBuf,
     family: ArchiveFamily,
@@ -363,7 +388,19 @@ impl Extraction<'_> {
         Ok(Some((name, relative, destination)))
     }
 
-    fn open_entry(&mut self, meta: &ExtractedEntryMeta) -> rars::Result<Box<dyn Write>> {
+    pub(crate) fn wants(&self, name: &str) -> bool {
+        self.selected.is_none_or(|set| set.contains(name))
+    }
+
+    pub(crate) fn skip_link(&mut self, name: &str) {
+        if self.wants(name) {
+            self.report
+                .warnings
+                .push(format!("Not extracted: {name} (link)"));
+        }
+    }
+
+    pub(crate) fn open_entry(&mut self, meta: &ExtractedEntryMeta) -> rars::Result<Box<dyn Write>> {
         self.publish()?;
         let Some((name, relative, destination)) = self.destination(meta)? else {
             return Ok(Box::new(io::sink()));
@@ -464,17 +501,45 @@ pub fn extract(
     cancel: &ReadCancellation,
     emit: ProgressFn,
 ) -> Result<ExtractReport, AppError> {
+    let kind = others::kind_of(request.archive);
+    if kind != Kind::Rar {
+        return others::extract(kind, request, cancel, emit);
+    }
     let password = request.password.map(str::as_bytes);
     let (_, archives) = load(request.archive, password, cancel)?;
     let family = archives[0].family();
+    let total = selected_bytes(&archives, family, request.selected.as_ref());
+    extract_into(&request, total, emit, |state| {
+        state.borrow_mut().family = family;
+        if can_skip_members(&archives, family, request.selected.as_ref()) {
+            extract_skipping(&archives[0], family, options(password, cancel), state)
+        } else {
+            extract_volumes_with_links(
+                &archives,
+                options(password, cancel),
+                |meta| state.borrow_mut().open_entry(meta),
+                |meta, link| state.borrow_mut().link_entry(meta, link),
+            )
+        }
+        .map_err(AppError::from)
+    })
+}
+
+/// Sets up verified, staged output, runs `body`, and publishes what passed.
+pub(crate) fn extract_into(
+    request: &ExtractRequest<'_>,
+    total: u64,
+    emit: ProgressFn,
+    body: impl FnOnce(&RefCell<Extraction<'_>>) -> Result<(), AppError>,
+) -> Result<ExtractReport, AppError> {
     fs::create_dir_all(request.out_dir)?;
     let out_dir = fs::canonicalize(request.out_dir)?;
-    let total = selected_bytes(&archives, family, request.selected.as_ref());
     let staging = out_dir.join(format!(".rawr-tmp-{}", std::process::id()));
     let state = RefCell::new(Extraction {
         out_dir: &out_dir,
         staging: staging.clone(),
-        family,
+        // Names and times from other formats arrive in the RAR 5 convention.
+        family: ArchiveFamily::Rar50Plus,
         selected: request.selected.as_ref(),
         overwrite: request.overwrite,
         tracker: Tracker::new(total, emit),
@@ -484,18 +549,63 @@ pub fn extract(
         next_temp: 0,
         report: ExtractReport::default(),
     });
-    let result = extract_volumes_with_links(
-        &archives,
-        options(password, cancel),
-        |meta| state.borrow_mut().open_entry(meta),
-        |meta, link| state.borrow_mut().link_entry(meta, link),
-    );
+    let result = body(&state);
     let mut state = state.into_inner();
-    let result = result.and_then(|()| state.publish());
+    let result = result.and_then(|()| state.publish().map_err(AppError::from));
     // An unpublished file failed or wasn't finished: it goes with the staging folder.
     let _ = fs::remove_dir_all(&staging);
     result?;
     Ok(state.report)
+}
+
+/// Unselected members can only be skipped in a single non-solid file. Solid members
+/// depend on what came before them, and the skipping API can't recreate links.
+fn can_skip_members(
+    archives: &[Archive],
+    family: ArchiveFamily,
+    selected: Option<&HashSet<String>>,
+) -> bool {
+    let Some(selected) = selected else {
+        return false;
+    };
+    let [archive] = archives else {
+        return false;
+    };
+    archive.members().all(|member| {
+        let name = display_name(family, &member.meta.name, member.name_is_unicode());
+        !member.is_solid()
+            && !member.meta.is_split_before
+            && !member.meta.is_split_after
+            && !(member.meta.is_redirection && selected.contains(&name))
+    })
+}
+
+fn extract_skipping(
+    archive: &Archive,
+    family: ArchiveFamily,
+    options: ArchiveReadOptions<'_>,
+    state: &RefCell<Extraction<'_>>,
+) -> rars::Result<()> {
+    archive
+        .extract_with_control(options, |member| {
+            let name = display_name(family, &member.meta.name, member.name_is_unicode());
+            if state.borrow().selected.is_some_and(|set| !set.contains(&name)) {
+                return Ok(ExtractionDecision::Skip);
+            }
+            let mut meta = ExtractedEntryMeta::new(
+                member.meta.name.clone(),
+                member.meta.file_time,
+                member.meta.file_attr,
+                member.meta.is_directory,
+            )
+            .with_attr_source(member.meta.attr_source())
+            .with_mtime_refinement(member.meta.mtime_refinement);
+            meta.name_is_unicode = member.name_is_unicode();
+            Ok(ExtractionDecision::Extract(
+                state.borrow_mut().open_entry(&meta)?,
+            ))
+        })
+        .map(|_| ())
 }
 
 fn selected_bytes(
@@ -526,6 +636,10 @@ pub fn test(
     cancel: &ReadCancellation,
     emit: ProgressFn,
 ) -> Result<usize, AppError> {
+    let kind = others::kind_of(archive);
+    if kind != Kind::Rar {
+        return others::test(kind, archive, password, cancel, emit);
+    }
     let password = password.map(str::as_bytes);
     let (_, archives) = load(archive, password, cancel)?;
     let family = archives[0].family();

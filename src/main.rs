@@ -16,6 +16,9 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
 
+/// What's reasonable to extract while the window waits for a drag to begin.
+const DRAG_LIMIT: u64 = 300 * 1024 * 1024;
+
 #[derive(Clone)]
 enum Job {
     Open,
@@ -91,6 +94,7 @@ struct State {
     /// Extract straight away once this opens (Explorer's "Extract here").
     extract_on_open: bool,
     temp_dir: Option<PathBuf>,
+    drag_count: usize,
 }
 
 /// Everything on the window thread. Worker threads reach it through `with_app`.
@@ -109,6 +113,17 @@ fn with_app(work: impl FnOnce(&Rc<App>)) {
     if let Some(app) = app {
         work(&app);
     }
+}
+
+fn refresh_recents(window: &AppWindow) {
+    let items: Vec<RecentItem> = shell::recent()
+        .iter()
+        .map(|path| RecentItem {
+            name: file_name(path).into(),
+            path: path.as_str().into(),
+        })
+        .collect();
+    window.set_recents(ModelRc::new(VecModel::from(items)));
 }
 
 fn file_name(path: &str) -> &str {
@@ -458,13 +473,18 @@ impl App {
 
     fn on_opened(self: &Rc<Self>, archive: OpenedArchive) {
         let name = file_name(&archive.path).to_owned();
+        shell::remember(&archive.path);
+        refresh_recents(&self.window);
         self.window.set_window_title(format!("{name} - rawr").into());
         self.window.set_archive_name(name.as_str().into());
         self.window.set_archive_detail(detail_line(&archive).into());
         self.window.set_info_text(info_text(&archive).into());
-        self.window
-            .set_info_comment(archive.comment.clone().unwrap_or_default().into());
-        self.window.set_can_edit(archive.parts == 1);
+        let comment = archive.comment.clone().unwrap_or_default();
+        self.window.set_info_comment(comment.as_str().into());
+        self.window.set_info_comment_saved(comment.as_str().into());
+        let is_rar = archive.format.starts_with("RAR");
+        self.window.set_can_edit(is_rar && archive.parts == 1);
+        self.window.set_can_repair(is_rar);
         self.window.set_has_archive(true);
         let warnings = archive.warnings.clone();
         let extract_now = {
@@ -530,6 +550,8 @@ impl App {
             path.extension().is_some_and(|extension| {
                 let extension = extension.to_string_lossy().to_ascii_lowercase();
                 extension == "rar"
+                    || extension == "zip"
+                    || extension == "7z"
                     || (extension.len() == 3
                         && extension.starts_with('r')
                         && extension[1..].bytes().all(|b| b.is_ascii_digit()))
@@ -767,6 +789,102 @@ impl App {
             .window
             .window()
             .with_winit_window(|window| window.set_theme(theme));
+    }
+
+    /// Dragging to Explorer needs real files before the drag starts, so the chosen
+    /// rows are extracted to temp first. That blocks the window, hence the limit.
+    fn begin_drag(self: &Rc<Self>, index: usize) {
+        if !self.state.borrow().selected.contains(&index) {
+            self.click_row(index, false, false);
+        }
+        let Some(names) = self.chosen_names() else {
+            return;
+        };
+        let (archive_path, password, top_level, too_big, locked) = {
+            let state = self.state.borrow();
+            let Some(archive) = &state.archive else { return };
+            let wanted = |name: &String| names.contains(name);
+            // Solid archives decode everything up to the last file wanted.
+            let bytes: u64 = archive
+                .entries
+                .iter()
+                .filter(|entry| archive.is_solid || wanted(&entry.name))
+                .map(|entry| entry.unpacked_size)
+                .sum();
+            let top_level: Vec<String> = state
+                .selected
+                .iter()
+                .filter_map(|&row| state.rows.get(row))
+                .map(|row| row.path.trim_end_matches('/').to_owned())
+                .collect();
+            (
+                state.path.clone(),
+                state.password.clone(),
+                top_level,
+                bytes > DRAG_LIMIT,
+                archive.any_encrypted && state.password.is_none(),
+            )
+        };
+        if too_big {
+            self.notify(2, "That's a lot to drag. Use Extract for this one.");
+            return;
+        }
+        if locked {
+            self.notify(2, "Extract once with the password before dragging from this archive.");
+            return;
+        }
+        let root = {
+            let mut state = self.state.borrow_mut();
+            let temp = state
+                .temp_dir
+                .get_or_insert_with(|| {
+                    std::env::temp_dir().join(format!("rawr-{}", std::process::id()))
+                })
+                .clone();
+            state.drag_count += 1;
+            temp.join(format!("drag-{}", state.drag_count))
+        };
+        // Leave the pointer handler first: the drag runs its own message loop.
+        let app = self.clone();
+        slint::Timer::single_shot(std::time::Duration::ZERO, move || {
+            let extracted = engine::extract(
+                ExtractRequest {
+                    archive: Path::new(&archive_path),
+                    out_dir: &root,
+                    password: password.as_deref(),
+                    selected: Some(names),
+                    overwrite: true,
+                },
+                &ReadCancellation::new(),
+                Arc::new(|_| {}),
+            );
+            if let Err(error) = extracted {
+                app.notify(3, format!("Couldn't prepare that: {}", error.message));
+                return;
+            }
+            let items: Vec<PathBuf> = top_level
+                .iter()
+                .filter_map(|name| engine::safe_relative(name).ok())
+                .map(|relative| root.join(relative))
+                .filter(|path| path.exists())
+                .collect();
+            if items.is_empty() {
+                return;
+            }
+            let _ = app.window.window().with_winit_window(|window| {
+                drag::start_drag(
+                    window,
+                    drag::DragItem::Files(items),
+                    drag::Image::Raw(include_bytes!("../ui/icon.png").to_vec()),
+                    |_, _| {},
+                    drag::Options::default(),
+                )
+            });
+            // The button came up during the drag, where the window couldn't see it.
+            app.window
+                .window()
+                .dispatch_event(slint::platform::WindowEvent::PointerExited);
+        });
     }
 
     fn notice_action(self: &Rc<Self>) {
@@ -1040,7 +1158,7 @@ fn wire(app: &Rc<App>) {
     on!(on_open_clicked, |app| {
         if let Some(path) = rfd::FileDialog::new()
             .set_title("Open archive")
-            .add_filter("RAR archives", &["rar", "r00", "exe"])
+            .add_filter("Archives", &["rar", "zip", "7z", "r00", "exe"])
             .add_filter("All files", &["*"])
             .pick_file()
         {
@@ -1063,6 +1181,26 @@ fn wire(app: &Rc<App>) {
         if let Some(folder) = rfd::FileDialog::new().set_title("Add folder").pick_folder() {
             app.dropped(vec![folder]);
         }
+    });
+    on!(on_row_dragged, |app, index| app.begin_drag(index as usize));
+    on!(on_encoding_changed, |app, choice| {
+        engine::set_legacy_encoding(choice as usize);
+        shell::set_name_encoding(choice as usize);
+        if app.state.borrow().archive.is_some() {
+            app.window.set_sheet(Sheet::None);
+            app.start(Job::Open);
+        }
+    });
+    on!(on_open_recent, |app, path| app.open_path(path.to_string()));
+    on!(on_clear_recents, |app| {
+        shell::clear_recent();
+        refresh_recents(&app.window);
+    });
+    on!(on_comment_saved, |app| {
+        app.window.set_sheet(Sheet::None);
+        app.start(Job::Edit(Edit::SetComment(
+            app.window.get_info_comment().to_string(),
+        )));
     });
     on!(on_extract_clicked, |app| app.begin_extract());
     on!(on_test_clicked, |app| app.start(Job::Test));
@@ -1216,7 +1354,29 @@ fn wire(app: &Rc<App>) {
 }
 
 fn main() -> Result<(), slint::PlatformError> {
+    let mut args = std::env::args().skip(1);
+    let first = args.next();
+    let second = args.next();
+    if first.as_deref() == Some("--remove-settings") {
+        shell::remove_everything();
+        return Ok(());
+    }
+    // Later copies started by the same Explorer selection hand over and leave.
+    let mut add_inputs = Vec::new();
+    if let (Some("--add"), Some(path)) = (first.as_deref(), second.as_deref()) {
+        let queue = std::env::temp_dir().join("rawr-add");
+        let wait = std::time::Duration::from_millis(350);
+        match shell::gather_paths(&queue, Path::new(path), wait) {
+            Ok(Some(paths)) => add_inputs = paths,
+            Ok(None) => return Ok(()),
+            Err(_) => add_inputs = vec![PathBuf::from(path)],
+        }
+    }
+    engine::set_legacy_encoding(shell::name_encoding());
+
     let window = AppWindow::new()?;
+    window.set_app_version(env!("CARGO_PKG_VERSION").into());
+    window.set_name_encoding(shell::name_encoding() as i32);
     let rows = Rc::new(VecModel::default());
     window.set_rows(ModelRc::from(rows.clone()));
     let app = Rc::new(App {
@@ -1227,6 +1387,7 @@ fn main() -> Result<(), slint::PlatformError> {
     APP.with(|slot| *slot.borrow_mut() = Some(app.clone()));
     wire(&app);
     app.refresh_crumbs();
+    refresh_recents(&app.window);
 
     let theme = shell::theme();
     app.window.set_theme_choice(theme);
@@ -1269,18 +1430,16 @@ fn main() -> Result<(), slint::PlatformError> {
 
     app.window.window().on_close_requested(request_close);
 
-    let mut args = std::env::args().skip(1);
-    match args.next().as_deref() {
+    match first.as_deref() {
         Some("--extract-here") => {
-            if let Some(path) = args.next() {
+            if let Some(path) = second {
                 app.state.borrow_mut().extract_on_open = true;
                 app.open_path(path);
             }
         }
         Some("--add") => {
-            let inputs: Vec<PathBuf> = args.map(PathBuf::from).collect();
-            if !inputs.is_empty() {
-                app.begin_create(inputs);
+            if !add_inputs.is_empty() {
+                app.begin_create(add_inputs);
             }
         }
         Some(path) => app.open_path(path.to_owned()),

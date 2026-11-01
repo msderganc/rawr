@@ -49,6 +49,13 @@ fn assert_sizes_match(listing: &OpenedArchive, out: &Path) {
 }
 
 #[test]
+fn old_names_read_in_the_chosen_encoding() {
+    assert_eq!(engine::legacy_text(&[0x80, b'.', b't'], false, 0), "Ç.t");
+    assert_eq!(engine::legacy_text(&[0x80, b'.', b't'], false, 3), "А.t");
+    assert_eq!(engine::legacy_text("dir\\ok".as_bytes(), false, 3), "dir/ok");
+}
+
+#[test]
 fn rejects_names_unsafe_on_windows() {
     for name in [
         "../evil.txt",

@@ -327,6 +327,8 @@ pub enum Edit {
     Rename { from: String, to: String },
     /// Added under `into` ("" or ending in '/'), replacing anything of the same name.
     Add { inputs: Vec<PathBuf>, into: String },
+    /// An empty comment removes it.
+    SetComment(String),
 }
 
 /// Removes the working folder even if the edit fails or is cancelled.
@@ -392,7 +394,7 @@ pub fn edit(
     let dropped = |name: &str| match &change {
         Edit::Delete(names) => names.contains(name),
         Edit::Add { .. } => added_names.contains(&name.to_lowercase()),
-        Edit::Rename { .. } => false,
+        Edit::Rename { .. } | Edit::SetComment(_) => false,
     };
 
     let mut kept = Vec::new();
@@ -450,7 +452,10 @@ pub fn edit(
     };
 
     let mut builder = archive.preserving_builder(password_bytes)?;
-    let comment = archive.comment_with_options(options(password_bytes, cancel))?;
+    let comment = match &change {
+        Edit::SetComment(text) => (!text.is_empty()).then(|| text.as_bytes().to_vec()),
+        _ => archive.comment_with_options(options(password_bytes, cancel))?,
+    };
     builder = builder.comment(comment);
     for item in kept {
         let new_name = match &change {

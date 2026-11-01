@@ -1,4 +1,4 @@
-import { AboutSlint, CheckBox, ComboBox, LineEdit, ListView, Palette, ScrollView, Switch } from "std-widgets.slint";
+import { AboutSlint, ComboBox, ListView, Palette, ScrollView, TextEdit } from "std-widgets.slint";
 
 export struct FileRow {
     name: string,
@@ -13,6 +13,11 @@ export struct FileRow {
 
 export struct Crumb {
     label: string,
+    path: string,
+}
+
+export struct RecentItem {
+    name: string,
     path: string,
 }
 
@@ -228,6 +233,149 @@ component SheetCard {
     }
 }
 
+component LineEdit {
+    in property <InputType> input-type: InputType.text;
+    in-out property <string> text;
+    in property <string> placeholder-text;
+    callback accepted();
+    forward-focus: input;
+    public function select-all() {
+        input.select-all();
+    }
+    height: 34px;
+    min-width: 80px;
+    horizontal-stretch: 1;
+    Rectangle {
+        border-radius: 7px;
+        border-width: 1px;
+        border-color: input.has-focus ? Look.accent : Look.faint;
+        background: Look.window;
+        animate border-color { duration: 90ms; }
+    }
+    Rectangle {
+        x: 10px;
+        width: parent.width - 20px;
+        clip: true;
+        input := TextInput {
+            width: max(parent.width, self.preferred-width);
+            height: parent.height;
+            input-type: root.input-type;
+            text <=> root.text;
+            font-size: 13px;
+            color: Look.text;
+            selection-background-color: Look.accent.with-alpha(0.35);
+            selection-foreground-color: Look.text;
+            single-line: true;
+            vertical-alignment: center;
+            accepted => { root.accepted(); }
+        }
+        if root.text == "" && root.placeholder-text != "": Text {
+            x: 0;
+            text: root.placeholder-text;
+            font-size: 13px;
+            color: Look.muted;
+            vertical-alignment: center;
+        }
+    }
+}
+
+component CheckBox {
+    in property <string> text;
+    in-out property <bool> checked;
+    in property <bool> enabled: true;
+    callback toggled();
+    height: 26px;
+    accessible-role: checkbox;
+    accessible-label: root.text;
+    accessible-checkable: true;
+    accessible-checked: root.checked;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { touch.clicked(); }
+    HorizontalLayout {
+        spacing: 9px;
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 0;
+            Rectangle {
+                width: 18px;
+                height: 18px;
+                border-radius: 4px;
+                border-width: root.checked ? 0 : 1.5px;
+                border-color: root.enabled ? Look.muted : Look.faint;
+                background: root.checked ? (root.enabled ? Look.accent : Look.faint) : transparent;
+                if root.checked: Glyph {
+                    size: 14px;
+                    commands: "M9.5 16.2 5.3 12l-1.4 1.4 5.6 5.6L20.5 8l-1.4-1.4z";
+                    tint: Look.on-accent;
+                }
+            }
+        }
+        Text {
+            text: root.text;
+            font-size: 13px;
+            vertical-alignment: center;
+            color: root.enabled ? Look.text : Look.muted;
+            wrap: word-wrap;
+        }
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => {
+            root.checked = !root.checked;
+            root.toggled();
+        }
+    }
+}
+
+component Switch {
+    in property <string> text;
+    in-out property <bool> checked;
+    callback toggled();
+    min-height: 28px;
+    accessible-role: switch;
+    accessible-label: root.text;
+    accessible-checkable: true;
+    accessible-checked: root.checked;
+    accessible-action-default => { touch.clicked(); }
+    HorizontalLayout {
+        spacing: 11px;
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 0;
+            Rectangle {
+                width: 38px;
+                height: 20px;
+                border-radius: 10px;
+                background: root.checked ? Look.accent : Look.faint;
+                animate background { duration: 120ms; }
+                Rectangle {
+                    x: root.checked ? 20px : 2px;
+                    y: 2px;
+                    width: 16px;
+                    height: 16px;
+                    border-radius: 8px;
+                    background: root.checked ? Look.on-accent : Look.muted;
+                    animate x { duration: 120ms; }
+                }
+            }
+        }
+        Text {
+            horizontal-stretch: 1;
+            text: root.text;
+            font-size: 13px;
+            vertical-alignment: center;
+            color: Look.text;
+            wrap: word-wrap;
+        }
+    }
+    touch := TouchArea {
+        clicked => {
+            root.checked = !root.checked;
+            root.toggled();
+        }
+    }
+}
+
 component FieldLabel inherits Text {
     font-size: 12px;
     color: Look.muted;
@@ -304,6 +452,7 @@ export component AppWindow inherits Window {
     in property <int> selected-count;
     in property <bool> dropping;
     in property <bool> can-edit;
+    in property <bool> can-repair;
 
     in property <bool> busy;
     in property <string> busy-title;
@@ -336,7 +485,9 @@ export component AppWindow inherits Window {
     in-out property <int> create-recovery: 0;
     in-out property <string> create-comment;
     in property <string> info-text;
-    in property <string> info-comment;
+    in-out property <string> info-comment;
+    in property <string> info-comment-saved;
+    in property <[RecentItem]> recents;
     in-out property <string> rename-text;
     in property <string> confirm-title;
     in property <string> confirm-body;
@@ -347,6 +498,8 @@ export component AppWindow inherits Window {
     in-out property <bool> setting-context-menu;
     in-out property <bool> setting-association;
     in property <string> settings-note;
+    in-out property <int> name-encoding;
+    in property <string> app-version;
 
     in property <bool> maximized;
     callback title-pressed();
@@ -354,6 +507,11 @@ export component AppWindow inherits Window {
     callback maximize-clicked();
     callback close-clicked();
     callback resize-from(string);
+    callback row-dragged(int);
+    callback encoding-changed(int);
+    callback open-recent(string);
+    callback clear-recents();
+    callback comment-saved();
     callback open-clicked();
     callback new-clicked();
     callback add-files-clicked();
@@ -561,7 +719,7 @@ export component AppWindow inherits Window {
                     VerticalLayout {
                         spacing: 4px;
                         Text {
-                            text: "Drop an archive to open it";
+                            text: "Drop a RAR, ZIP or 7z to open it";
                             horizontal-alignment: center;
                             font-size: 20px;
                             font-weight: 600;
@@ -589,6 +747,47 @@ export component AppWindow inherits Window {
                             label: "New archive";
                             enabled: !root.busy;
                             clicked => { root.new-clicked(); }
+                        }
+                    }
+                    if root.recents.length > 0: HorizontalLayout {
+                        alignment: center;
+                        VerticalLayout {
+                            width: min(420px, root.width - 60px);
+                            spacing: 2px;
+                            FieldLabel {
+                                text: "Recent";
+                                horizontal-alignment: left;
+                            }
+                            for recent in root.recents: Rectangle {
+                                height: 30px;
+                                border-radius: 6px;
+                                background: recent-touch.has-hover ? Look.hover : transparent;
+                                accessible-role: button;
+                                accessible-label: recent.name;
+                                accessible-action-default => { root.open-recent(recent.path); }
+                                HorizontalLayout {
+                                    padding-left: 8px;
+                                    padding-right: 8px;
+                                    spacing: 8px;
+                                    VerticalLayout {
+                                        alignment: center;
+                                        horizontal-stretch: 0;
+                                        Glyph { commands: Icons.file; size: 15px; tint: #d9a02e; }
+                                    }
+                                    Text {
+                                        horizontal-stretch: 1;
+                                        text: recent.name;
+                                        font-size: 13px;
+                                        color: Look.text;
+                                        vertical-alignment: center;
+                                        overflow: elide;
+                                    }
+                                }
+                                recent-touch := TouchArea {
+                                    enabled: !root.busy;
+                                    clicked => { root.open-recent(recent.path); }
+                                }
+                            }
                         }
                     }
                 }
@@ -769,7 +968,18 @@ export component AppWindow inherits Window {
                                     accessible-item-selected: row.selected;
                                     accessible-action-default => { root.row-activated(index); }
                                     double-clicked => { root.row-activated(index); }
+                                    property <bool> drag-sent;
+                                    moved => {
+                                        if self.pressed && !self.drag-sent && !root.busy
+                                            && abs(self.mouse-x - self.pressed-x) + abs(self.mouse-y - self.pressed-y) > 10px {
+                                            self.drag-sent = true;
+                                            root.row-dragged(index);
+                                        }
+                                    }
                                     pointer-event(event) => {
+                                        if event.kind == PointerEventKind.down {
+                                            self.drag-sent = false;
+                                        }
                                         if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
                                             root.row-clicked(index, event.modifiers.control, event.modifiers.shift);
                                             keys.focus();
@@ -946,7 +1156,7 @@ export component AppWindow inherits Window {
             MenuRow { label: "New archive…"; enabled: !root.busy; clicked => { more-menu.close(); root.new-clicked(); } }
             Rectangle { height: 9px; Rectangle { height: 1px; background: Look.faint; } }
             MenuRow { label: "Test integrity"; enabled: root.has-archive && !root.busy; clicked => { more-menu.close(); root.test-clicked(); } }
-            MenuRow { label: "Repair…"; enabled: root.has-archive && !root.busy; clicked => { more-menu.close(); root.repair-clicked(); } }
+            MenuRow { label: "Repair…"; enabled: root.has-archive && root.can-repair && !root.busy; clicked => { more-menu.close(); root.repair-clicked(); } }
             MenuRow { label: "Archive details"; enabled: root.has-archive; clicked => { more-menu.close(); root.info-clicked(); } }
             MenuRow { label: "Close archive"; enabled: root.has-archive && !root.busy; clicked => { more-menu.close(); root.close-archive-clicked(); } }
             Rectangle { height: 9px; Rectangle { height: 1px; background: Look.faint; } }
@@ -1108,22 +1318,25 @@ export component AppWindow inherits Window {
             color: Look.text;
             wrap: word-wrap;
         }
-        if root.info-comment != "": Field {
+        Field {
             label: "Comment";
-            ScrollView {
-                max-height: 180px;
-                content-height: comment-text.preferred-height;
-                comment-text := Text {
-                    width: parent.visible-width;
-                    text: root.info-comment;
-                    wrap: word-wrap;
-                    font-size: 13px;
-                    color: Look.text;
-                }
+            TextEdit {
+                height: 110px;
+                text <=> root.info-comment;
+                read-only: !root.can-edit || root.busy;
+                placeholder-text: root.can-edit ? "No comment" : "This archive's comment can't be changed";
+                font-size: 13px;
             }
         }
         HorizontalLayout {
             alignment: end;
+            spacing: 8px;
+            if root.info-comment != root.info-comment-saved: Button {
+                text: "Save comment";
+                primary: true;
+                enabled: root.can-edit && !root.busy;
+                clicked => { root.comment-saved(); }
+            }
             Button { text: "Close"; clicked => { root.sheet = Sheet.none; } }
         }
     }
@@ -1196,6 +1409,14 @@ export component AppWindow inherits Window {
                 selected => { root.theme-changed(self.current-index); }
             }
         }
+        Field {
+            label: "File names in old archives";
+            ComboBox {
+                model: ["DOS, English (CP437)", "DOS, Western Europe (CP850)", "DOS, Central Europe (CP852)", "DOS, Cyrillic (CP866)", "Windows, Western (1252)", "Windows, Cyrillic (1251)"];
+                current-index <=> root.name-encoding;
+                selected => { root.encoding-changed(self.current-index); }
+            }
+        }
         Switch {
             text: "\"Extract here\" and \"Add to archive\" in Explorer";
             checked <=> root.setting-context-menu;
@@ -1205,6 +1426,10 @@ export component AppWindow inherits Window {
             text: "Open .rar files with rawr";
             checked <=> root.setting-association;
             toggled => { root.association-toggled(self.checked); }
+        }
+        if root.recents.length > 0: HorizontalLayout {
+            alignment: start;
+            Button { text: "Clear recent archives"; clicked => { root.clear-recents(); } }
         }
         if root.settings-note != "": Text {
             text: root.settings-note;
@@ -1223,7 +1448,7 @@ export component AppWindow inherits Window {
         card-width: 380px;
         dismissed => { root.sheet = Sheet.none; }
         Text {
-            text: "A small app for RAR archives, built on the rars library.";
+            text: "Version " + root.app-version + ". A small app for RAR, ZIP and 7z archives, built on the rars library.";
             wrap: word-wrap;
             font-size: 13px;
             color: Look.muted;

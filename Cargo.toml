@@ -1,6 +1,6 @@
 [package]
 name = "rawr"
-version = "0.2.0"
+version = "0.3.0"
 description = "Clean, minimal Windows app for RAR archives, built on rars"
 edition = "2021"
 rust-version = "1.92"
@@ -13,12 +13,29 @@ open = "5"
 rfd = "0.17"
 slint = { version = "1.18", features = ["unstable-winit-030"] }
 winreg = "0.55"
+zip = { version = "9", default-features = false, features = ["aes-crypto", "deflate", "deflate64", "bzip2", "lzma", "zstd", "time"] }
+sevenz-rust2 = { version = "0.20.2", default-features = false, features = ["aes256", "bzip2", "deflate", "ppmd", "zstd"] }
+drag = "2.1.1"
+
+[dev-dependencies]
+sevenz-rust2 = { version = "0.20.2", default-features = false, features = ["aes256", "bzip2", "compress", "deflate", "ppmd", "util", "zstd"] }
 
 [build-dependencies]
 slint-build = "1.18"
 winresource = "0.1"
 
 [profile.release]
+opt-level = "s"
 lto = true
 codegen-units = 1
 strip = true
+
+# Size matters for the interface; the archive code has to stay fast.
+[profile.release.package.rars]
+opt-level = 3
+
+[profile.release.package.sevenz-rust2]
+opt-level = 3
+
+[profile.release.package.zip]
+opt-level = 3
