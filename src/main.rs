@@ -1342,11 +1342,15 @@ fn wire(app: &Rc<App>) {
         }
         app.window.set_setting_context_menu(shell::context_menu_enabled());
     });
+    on!(on_default_apps_clicked, |app| {
+        if let Err(error) = open::that_detached("ms-settings:defaultapps?registeredAppUser=rawr") {
+            app.window
+                .set_settings_note(format!("Couldn't open Windows Settings: {error}").into());
+        }
+    });
     on!(on_association_toggled, |app, enabled| {
         match shell::set_association(enabled) {
-            Ok(()) => app.window.set_settings_note(
-                "If another app is your default for .rar, choose rawr once with Open with > Choose another app.".into(),
-            ),
+            Ok(()) => app.window.set_settings_note("".into()),
             Err(error) => app.window.set_settings_note(format!("Couldn't change that: {error}").into()),
         }
         app.window.set_setting_association(shell::association_enabled());
@@ -1357,6 +1361,10 @@ fn main() -> Result<(), slint::PlatformError> {
     let mut args = std::env::args().skip(1);
     let first = args.next();
     let second = args.next();
+    if first.as_deref() == Some("--register") {
+        let _ = shell::set_association(true);
+        return Ok(());
+    }
     if first.as_deref() == Some("--remove-settings") {
         shell::remove_everything();
         return Ok(());

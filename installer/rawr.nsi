@@ -20,11 +20,25 @@ SetCompressor /SOLID lzma
 !insertmacro MUI_UNPAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "English"
 
+; Replacing a running exe fails, so make sure it's closed first.
+!macro RequireClosed
+  IfFileExists "$INSTDIR\rawr.exe" 0 +7
+  ClearErrors
+  FileOpen $0 "$INSTDIR\rawr.exe" a
+  IfErrors 0 +3
+  MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "rawr is running. Close it, then choose Retry." /SD IDCANCEL IDRETRY -3
+  Abort
+  FileClose $0
+!macroend
+
 Section
+  !insertmacro RequireClosed
   SetOutPath "$INSTDIR"
   File "..\target\release\rawr.exe"
   WriteUninstaller "$INSTDIR\uninstall.exe"
   CreateShortcut "$SMPROGRAMS\rawr.lnk" "$INSTDIR\rawr.exe"
+  ; Lists rawr in Open with and Default apps. The user's default stays theirs.
+  ExecWait '"$INSTDIR\rawr.exe" --register'
   !define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\rawr"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayName" "rawr"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayVersion" "${VERSION}"
@@ -36,6 +50,7 @@ Section
 SectionEnd
 
 Section "Uninstall"
+  !insertmacro RequireClosed
   ; Takes back Explorer menus, the .rar association and settings.
   ExecWait '"$INSTDIR\rawr.exe" --remove-settings'
   Delete "$SMPROGRAMS\rawr.lnk"

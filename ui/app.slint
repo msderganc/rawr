@@ -1,4 +1,4 @@
-import { AboutSlint, ComboBox, ListView, Palette, ScrollView, TextEdit } from "std-widgets.slint";
+import { AboutSlint, ListView, Palette, ScrollView } from "std-widgets.slint";
 
 export struct FileRow {
     name: string,
@@ -25,16 +25,18 @@ export enum Sheet { none, password, extract, create, info, rename, confirm, deta
 
 global Look {
     out property <bool> dark: Palette.color-scheme == ColorScheme.dark;
-    out property <color> window: dark ? #1c1c1e : #fafafa;
-    out property <color> surface: dark ? #262628 : #ffffff;
-    out property <color> text: dark ? #f2f2f3 : #1b1b1d;
-    out property <color> muted: dark ? #a0a0a6 : #6c6c72;
-    out property <color> faint: dark ? #3a3a3e : #e7e7ea;
-    out property <color> hover: dark ? #2c2c2f : #f0f0f2;
-    out property <color> accent: dark ? #f0a23c : #c56a05;
-    out property <color> on-accent: dark ? #1c1c1e : #ffffff;
-    out property <color> selected: dark ? #4a3a22 : #fbeed9;
-    out property <color> good: dark ? #6fcf97 : #1e8449;
+    out property <color> window: dark ? #0f100e : #fafbf7;
+    out property <color> surface: dark ? #191a17 : #ffffff;
+    out property <color> text: dark ? #f3f5ee : #101010;
+    out property <color> muted: dark ? #a3a69c : #666a5f;
+    out property <color> faint: dark ? #30322c : #e4e6dd;
+    out property <color> hover: dark ? #23251f : #f0f2e9;
+    out property <color> accent: #9dfa1e;
+    out property <color> on-accent: #101010;
+    // The bright lime is unreadable as text or thin lines on a light background.
+    out property <color> accent-text: dark ? #9dfa1e : #4a8500;
+    out property <color> selected: dark ? #2d3a17 : #ecfbd2;
+    out property <color> good: dark ? #9dfa1e : #3f7300;
     out property <color> warn: dark ? #f2c94c : #a86f00;
     out property <color> bad: dark ? #ff8a80 : #c0392b;
 }
@@ -248,7 +250,7 @@ component LineEdit {
     Rectangle {
         border-radius: 7px;
         border-width: 1px;
-        border-color: input.has-focus ? Look.accent : Look.faint;
+        border-color: input.has-focus ? Look.accent-text : Look.faint;
         background: Look.window;
         animate border-color { duration: 90ms; }
     }
@@ -263,7 +265,7 @@ component LineEdit {
             text <=> root.text;
             font-size: 13px;
             color: Look.text;
-            selection-background-color: Look.accent.with-alpha(0.35);
+            selection-background-color: Look.accent.with-alpha(0.45);
             selection-foreground-color: Look.text;
             single-line: true;
             vertical-alignment: center;
@@ -373,6 +375,129 @@ component Switch {
             root.checked = !root.checked;
             root.toggled();
         }
+    }
+}
+
+component ComboBox {
+    in property <[string]> model;
+    in-out property <int> current-index: 0;
+    callback selected();
+    height: 34px;
+    min-width: 90px;
+    horizontal-stretch: 1;
+    accessible-role: combobox;
+    accessible-label: root.model[root.current-index];
+    accessible-action-default => { list.show(); }
+    Rectangle {
+        border-radius: 7px;
+        border-width: 1px;
+        border-color: Look.faint;
+        background: touch.has-hover ? Look.hover : Look.window;
+    }
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 8px;
+        Text {
+            horizontal-stretch: 1;
+            text: root.model[root.current-index];
+            font-size: 13px;
+            color: Look.text;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 0;
+            Path {
+                width: 12px;
+                height: 12px;
+                viewbox-width: 24;
+                viewbox-height: 24;
+                commands: "M5.300 8.300 12 15l6.700-6.700 1.400 1.400L12 17.800 3.900 9.700z";
+                fill: Look.muted;
+            }
+        }
+    }
+    touch := TouchArea {
+        clicked => { list.show(); }
+    }
+    list := PopupWindow {
+        x: 0;
+        y: root.height + 2px;
+        width: root.width;
+        Rectangle {
+            background: Look.surface;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Look.faint;
+            drop-shadow-blur: 14px;
+            drop-shadow-color: #00000040;
+        }
+        VerticalLayout {
+            padding: 4px;
+            for item[index] in root.model: Rectangle {
+                height: 30px;
+                border-radius: 5px;
+                background: index == root.current-index ? Look.selected : item-touch.has-hover ? Look.hover : transparent;
+                accessible-role: list-item;
+                accessible-label: item;
+                accessible-action-default => { item-touch.clicked(); }
+                Text {
+                    x: 8px;
+                    width: parent.width - 16px;
+                    text: item;
+                    font-size: 13px;
+                    color: Look.text;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                item-touch := TouchArea {
+                    clicked => {
+                        root.current-index = index;
+                        list.close();
+                        root.selected();
+                    }
+                }
+            }
+        }
+    }
+}
+
+component TextEdit {
+    in-out property <string> text;
+    in property <bool> read-only;
+    in property <string> placeholder-text;
+    in property <length> font-size: 13px;
+    Rectangle {
+        border-radius: 7px;
+        border-width: 1px;
+        border-color: input.has-focus ? Look.accent-text : Look.faint;
+        background: Look.window;
+    }
+    ScrollView {
+        x: 8px;
+        y: 6px;
+        width: parent.width - 16px;
+        height: parent.height - 12px;
+        content-height: max(input.preferred-height, self.visible-height);
+        input := TextInput {
+            width: parent.visible-width;
+            text <=> root.text;
+            read-only: root.read-only;
+            single-line: false;
+            wrap: word-wrap;
+            font-size: root.font-size;
+            color: Look.text;
+            selection-background-color: Look.accent.with-alpha(0.45);
+            selection-foreground-color: Look.text;
+        }
+    }
+    if root.text == "": Text {
+        x: 8px;
+        y: 6px;
+        text: root.placeholder-text;
+        font-size: root.font-size;
+        color: Look.muted;
     }
 }
 
@@ -509,6 +634,7 @@ export component AppWindow inherits Window {
     callback resize-from(string);
     callback row-dragged(int);
     callback encoding-changed(int);
+    callback default-apps-clicked();
     callback open-recent(string);
     callback clear-recents();
     callback comment-saved();
@@ -595,11 +721,23 @@ export component AppWindow inherits Window {
                     spacing: 6px;
                     alignment: stretch;
                     VerticalLayout {
+                        alignment: center;
+                        horizontal-stretch: 0;
+                        Image {
+                            source: @image-url("icon-64.png");
+                            width: 30px;
+                            height: 30px;
+                            accessible-role: image;
+                            accessible-label: "rawr";
+                        }
+                    }
+                    Rectangle { width: 6px; horizontal-stretch: 0; }
+                    VerticalLayout {
                         horizontal-stretch: 1;
                         alignment: center;
                         min-width: 120px;
                         Text {
-                            text: root.has-archive ? root.archive-name : "rawr";
+                            text: root.has-archive ? root.archive-name : "";
                             font-size: 15px;
                             font-weight: 600;
                             color: Look.text;
@@ -622,7 +760,7 @@ export component AppWindow inherits Window {
                             border-radius: 7px;
                             background: Look.hover;
                             border-width: search.has-focus ? 1px : 0;
-                            border-color: Look.accent;
+                            border-color: Look.accent-text;
                             HorizontalLayout {
                                 padding-left: 9px;
                                 padding-right: 8px;
@@ -714,7 +852,24 @@ export component AppWindow inherits Window {
                     spacing: 20px;
                     HorizontalLayout {
                         alignment: center;
-                        Glyph { commands: Icons.archive; size: 56px; tint: Look.faint; }
+                        spacing: 16px;
+                        Image {
+                            source: @image-url("icon-192.png");
+                            width: 72px;
+                            height: 72px;
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            Image {
+                                source: @image-url("wordmark.png");
+                                width: 210px;
+                                height: 50px;
+                                image-fit: contain;
+                                colorize: Look.text;
+                                accessible-role: image;
+                                accessible-label: "rawr";
+                            }
+                        }
                     }
                     VerticalLayout {
                         spacing: 4px;
@@ -772,7 +927,7 @@ export component AppWindow inherits Window {
                                     VerticalLayout {
                                         alignment: center;
                                         horizontal-stretch: 0;
-                                        Glyph { commands: Icons.file; size: 15px; tint: #d9a02e; }
+                                        Glyph { commands: Icons.file; size: 15px; tint: Look.accent-text; }
                                     }
                                     Text {
                                         horizontal-stretch: 1;
@@ -913,7 +1068,7 @@ export component AppWindow inherits Window {
                                             Glyph {
                                                 size: 17px;
                                                 commands: row.kind == -1 ? Icons.folder : Icons.file;
-                                                tint: row.kind == -1 ? Look.accent
+                                                tint: row.kind == -1 ? Look.accent-text
                                                     : row.kind == 1 ? #3f9ae0
                                                     : row.kind == 2 ? #b76fd6
                                                     : row.kind == 3 ? #e0637a
@@ -1001,7 +1156,7 @@ export component AppWindow inherits Window {
             // ---- notice ----
             if root.notice != "" && !root.busy: Rectangle {
                 height: 40px;
-                background: root.notice-kind == 1 ? (Look.dark ? #1f3327 : #e8f5ec)
+                background: root.notice-kind == 1 ? (Look.dark ? #243113 : #ecfbd2)
                     : root.notice-kind == 2 ? (Look.dark ? #3a3119 : #fdf4dc)
                     : root.notice-kind == 3 ? (Look.dark ? #40231f : #fbe9e7)
                     : Look.hover;
@@ -1112,7 +1267,7 @@ export component AppWindow inherits Window {
         height: parent.height - 20px;
         border-radius: 12px;
         border-width: 2px;
-        border-color: Look.accent;
+        border-color: Look.accent-text;
         background: Look.accent.with-alpha(0.08);
     }
 
@@ -1260,7 +1415,7 @@ export component AppWindow inherits Window {
             Text {
                 text: root.create-more ? "Fewer options" : "More options";
                 font-size: 13px;
-                color: Look.accent;
+                color: Look.accent-text;
                 TouchArea { clicked => { root.create-more = !root.create-more; } }
             }
         }
@@ -1423,13 +1578,15 @@ export component AppWindow inherits Window {
             toggled => { root.context-menu-toggled(self.checked); }
         }
         Switch {
-            text: "Open .rar files with rawr";
+            text: "List rawr in Open with for RAR, ZIP and 7z files";
             checked <=> root.setting-association;
             toggled => { root.association-toggled(self.checked); }
         }
-        if root.recents.length > 0: HorizontalLayout {
+        HorizontalLayout {
             alignment: start;
-            Button { text: "Clear recent archives"; clicked => { root.clear-recents(); } }
+            spacing: 8px;
+            if root.setting-association: Button { text: "Make rawr the default"; clicked => { root.default-apps-clicked(); } }
+            if root.recents.length > 0: Button { text: "Clear recent archives"; clicked => { root.clear-recents(); } }
         }
         if root.settings-note != "": Text {
             text: root.settings-note;
@@ -1444,9 +1601,28 @@ export component AppWindow inherits Window {
     }
 
     if root.sheet == Sheet.about: SheetCard {
-        title: "rawr";
+        title: "About";
         card-width: 380px;
         dismissed => { root.sheet = Sheet.none; }
+        HorizontalLayout {
+            alignment: start;
+            spacing: 12px;
+            Image {
+                source: @image-url("icon-192.png");
+                width: 52px;
+                height: 52px;
+            }
+            VerticalLayout {
+                alignment: center;
+                Image {
+                    source: @image-url("wordmark.png");
+                    width: 151px;
+                    height: 36px;
+                    image-fit: contain;
+                    colorize: Look.text;
+                }
+            }
+        }
         Text {
             text: "Version " + root.app-version + ". A small app for RAR, ZIP and 7z archives, built on the rars library.";
             wrap: word-wrap;

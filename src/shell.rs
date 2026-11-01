@@ -1,6 +1,6 @@
 //! Explorer integration and settings, all per-user under HKCU. Nothing here needs admin.
 use std::io;
-use winreg::enums::{HKEY_CURRENT_USER, KEY_READ};
+use winreg::enums::{HKEY_CURRENT_USER, KEY_ALL_ACCESS, KEY_READ};
 use winreg::RegKey;
 
 // Tests work in a private key, so they can't disturb the real .rar settings.
@@ -20,6 +20,11 @@ macro_rules! key {
 const SETTINGS: &str = key!("rawr");
 const CLASS: &str = key!(r"Classes\rawr.archive");
 const RAR_EXTENSION: &str = key!(r"Classes\.rar");
+const CLASSES: &str = key!("Classes");
+const CAPABILITIES: &str = key!(r"rawr\Capabilities");
+const APPLICATION: &str = key!(r"Classes\Applications\rawr.exe");
+const REGISTERED_APPLICATIONS: &str = key!("RegisteredApplications");
+const EXTENSIONS: [&str; 3] = [".rar", ".zip", ".7z"];
 const EXTRACT_VERB: &str = key!(r"Classes\SystemFileAssociations\.rar\shell\rawr.extract");
 const ADD_FILE_VERB: &str = key!(r"Classes\*\shell\rawr.add");
 const ADD_FOLDER_VERB: &str = key!(r"Classes\Directory\shell\rawr.add");
@@ -69,16 +74,43 @@ pub fn set_context_menu(enabled: bool) -> io::Result<()> {
 }
 
 pub fn association_enabled() -> bool {
-    exists(CLASS)
+    exists(CAPABILITIES)
 }
 
-/// Offers rawr as a handler for .rar. Windows keeps the user's chosen default, so
-/// taking over from another app still needs "Open with" once.
+fn extension_key(extension: &str) -> String {
+    format!(r"{CLASSES}\{extension}")
+}
+
+/// Tells Explorer to pick up the change without a restart.
+fn notify_shell() {
+    const SHCNE_ASSOCCHANGED: i32 = 0x0800_0000;
+    #[link(name = "shell32")]
+    extern "system" {
+        fn SHChangeNotify(
+            event: i32,
+            flags: u32,
+            item1: *const core::ffi::c_void,
+            item2: *const core::ffi::c_void,
+        );
+    }
+    // SAFETY: this event takes no item pointers, and null is what it documents.
+    unsafe { SHChangeNotify(SHCNE_ASSOCCHANGED, 0, std::ptr::null(), std::ptr::null()) };
+}
+
+/// Lists rawr as a handler in "Open with" and Default apps. The user's current default
+/// is left alone: Windows reserves that choice for the user, so only they can change it.
 pub fn set_association(enabled: bool) -> io::Result<()> {
+    // 0.3.0 overwrote the .rar default, which no longer belongs to rawr.
+    if let Ok(extension) = hkcu().open_subkey_with_flags(RAR_EXTENSION, KEY_ALL_ACCESS) {
+        if extension.get_value::<String, _>("").is_ok_and(|value| value == "rawr.archive") {
+            extension.delete_value("")?;
+        }
+    }
     if enabled {
         let exe = exe()?;
+        let open = format!("\"{exe}\" \"%1\"");
         let (class, _) = hkcu().create_subkey(CLASS)?;
-        class.set_value("", &"RAR archive")?;
+        class.set_value("", &"Archive")?;
         class
             .create_subkey("DefaultIcon")?
             .0
@@ -86,34 +118,54 @@ pub fn set_association(enabled: bool) -> io::Result<()> {
         class
             .create_subkey(r"shell\open\command")?
             .0
-            .set_value("", &format!("\"{exe}\" \"%1\""))?;
-        let (extension, _) = hkcu().create_subkey(RAR_EXTENSION)?;
-        // Keep whatever was there, so turning this off can put it back.
-        let previous: String = extension.get_value("").unwrap_or_default();
-        if previous != "rawr.archive" {
-            class.set_value("Previous", &previous)?;
-        }
-        extension.set_value("", &"rawr.archive")?;
-        extension
-            .create_subkey("OpenWithProgids")?
+            .set_value("", &open)?;
+
+        let (application, _) = hkcu().create_subkey(APPLICATION)?;
+        application.set_value("FriendlyAppName", &"rawr")?;
+        application
+            .create_subkey(r"shell\open\command")?
             .0
-            .set_value("rawr.archive", &"")
+            .set_value("", &open)?;
+        let (supported, _) = application.create_subkey("SupportedTypes")?;
+
+        let (capabilities, _) = hkcu().create_subkey(CAPABILITIES)?;
+        capabilities.set_value("ApplicationName", &"rawr")?;
+        capabilities.set_value(
+            "ApplicationDescription",
+            &"Open, test, extract and create archives",
+        )?;
+        capabilities.set_value("ApplicationIcon", &format!("\"{exe}\",0"))?;
+        let (associations, _) = capabilities.create_subkey("FileAssociations")?;
+        for extension in EXTENSIONS {
+            associations.set_value(extension, &"rawr.archive")?;
+            supported.set_value(extension, &"")?;
+            hkcu()
+                .create_subkey(format!(r"{}\OpenWithProgids", extension_key(extension)))?
+                .0
+                .set_value("rawr.archive", &"")?;
+        }
+        hkcu()
+            .create_subkey(REGISTERED_APPLICATIONS)?
+            .0
+            .set_value("rawr", &CAPABILITIES)?;
     } else {
-        let previous: String = hkcu()
-            .open_subkey(CLASS)
-            .and_then(|class| class.get_value("Previous"))
-            .unwrap_or_default();
-        if let Ok((extension, _)) = hkcu().create_subkey(RAR_EXTENSION) {
-            let current: String = extension.get_value("").unwrap_or_default();
-            if current == "rawr.archive" {
-                extension.set_value("", &previous)?;
-            }
-            if let Ok(progids) = extension.create_subkey("OpenWithProgids") {
-                let _ = progids.0.delete_value("rawr.archive");
+        if let Ok(registered) = hkcu().create_subkey(REGISTERED_APPLICATIONS) {
+            let _ = registered.0.delete_value("rawr");
+        }
+        for extension in EXTENSIONS {
+            let path = format!(r"{}\OpenWithProgids", extension_key(extension));
+            if let Ok(progids) = hkcu().open_subkey_with_flags(path, KEY_ALL_ACCESS) {
+                let _ = progids.delete_value("rawr.archive");
             }
         }
-        remove(CLASS)
+        remove(CAPABILITIES)?;
+        remove(APPLICATION)?;
+        remove(CLASS)?;
     }
+    if !cfg!(test) {
+        notify_shell();
+    }
+    Ok(())
 }
 
 /// 0 follows Windows, 1 light, 2 dark.
@@ -183,8 +235,9 @@ pub fn gather_paths(
         return Ok(None);
     }
     let mut paths = Vec::new();
-    for name in names {
-        let file = dir.join(&name);
+    // Our own marker goes last: while it exists, no other copy can think it's first.
+    for name in names.iter().rev() {
+        let file = dir.join(name);
         paths.push(std::path::PathBuf::from(std::fs::read_to_string(&file)?));
         let _ = std::fs::remove_file(file);
     }
@@ -279,13 +332,39 @@ mod tests {
 
         set_association(true).unwrap();
         assert!(association_enabled());
-        assert_eq!(value(RAR_EXTENSION, ""), "rawr.archive");
+        // The user's default stays theirs.
+        assert_eq!(value(RAR_EXTENSION, ""), "WinRAR");
+        hkcu()
+            .open_subkey_with_flags(RAR_EXTENSION, KEY_ALL_ACCESS)
+            .unwrap()
+            .set_value("", &"rawr.archive")
+            .unwrap();
+        set_association(true).unwrap();
+        assert_eq!(value(RAR_EXTENSION, ""), "");
+        hkcu()
+            .open_subkey_with_flags(RAR_EXTENSION, KEY_ALL_ACCESS)
+            .unwrap()
+            .set_value("", &"WinRAR")
+            .unwrap();
         let open = format!(r"{CLASS}\shell\open\command");
         assert!(value(&open, "").ends_with(r#"" "%1""#));
+        assert_eq!(value(REGISTERED_APPLICATIONS, "rawr"), CAPABILITIES);
+        let associations = format!(r"{CAPABILITIES}\FileAssociations");
+        for extension in EXTENSIONS {
+            assert_eq!(value(&associations, extension), "rawr.archive");
+            let progids = format!(r"{}\OpenWithProgids", extension_key(extension));
+            assert!(hkcu()
+                .open_subkey(&progids)
+                .unwrap()
+                .get_raw_value("rawr.archive")
+                .is_ok());
+        }
         set_association(true).unwrap();
         set_association(false).unwrap();
         assert!(!association_enabled());
         assert_eq!(value(RAR_EXTENSION, ""), "WinRAR");
+        assert_eq!(value(REGISTERED_APPLICATIONS, "rawr"), "");
+        assert!(!exists(CLASS) && !exists(APPLICATION));
 
         set_context_menu(true).unwrap();
         assert!(context_menu_enabled());

@@ -1,3 +1,5 @@
+<img src="assets/rawr-icon.png" alt="" width="96">
+
 # rawr
 
 A clean, minimal Windows app for RAR, ZIP and 7z archives, in Rust. It's built on the
@@ -18,7 +20,7 @@ A clean, minimal Windows app for RAR, ZIP and 7z archives, in Rust. It's built o
 - **Change** an archive: add, rename and delete files, and edit its comment
 - **Test** integrity, and **repair** archives that have a recovery record
 - **Open** a file straight from the archive, with a warning first for programs
-- **Explorer**: optional "Extract here", "Add to archive" and `.rar` association, in Settings
+- **Explorer**: optional "Extract here" and "Add to archive" menus, and a shortcut to make rawr your default, in Settings
 
 Keyboard: Enter opens, Backspace goes up, Delete, F2 to rename, Ctrl+A, Ctrl+F.
 
@@ -35,11 +37,12 @@ The app is the single file `target/release/rawr.exe`, which runs without install
 For an installer, install [NSIS](https://nsis.sourceforge.io), then:
 
 ```bash
-makensis /DVERSION=0.3.0 installer\rawr.nsi
+makensis /DVERSION=0.3.1 installer\rawr.nsi
 ```
 
-It installs per-user with no admin prompt. Uninstalling also removes rawr's Explorer
-menus and settings, and puts back any previous `.rar` association.
+It installs per-user with no admin prompt and lists rawr in "Open with" and Default
+apps for `.rar`, `.zip` and `.7z`, leaving your current default alone. Uninstalling
+removes all of that, along with rawr's Explorer menus and settings.
 
 ## Good to know
 
