@@ -76,5 +76,6 @@ UNRAR="C:\Program Files\WinRAR\UnRAR.exe" cargo test --release --test authoring 
 
 ## Licences
 
-rawr is Apache-2.0. `src/volumes.rs` and `tests/fixtures` come from rars. Slint is
-used under its royalty-free licence, which requires the credit in the About screen.
+rawr is MIT. `src/volumes.rs` and `tests/fixtures` come from rars and stay under
+Apache-2.0, and Slint is used under its royalty-free licence, which requires the credit
+in the About screen. See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
