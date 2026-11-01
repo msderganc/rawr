@@ -1,6 +1,6 @@
 [package]
 name = "rawr"
-version = "0.3.1"
+version = "0.3.2"
 description = "Clean, minimal Windows app for RAR archives, built on rars"
 edition = "2021"
 rust-version = "1.92"
@@ -8,6 +8,7 @@ license = "MIT"
 
 [dependencies]
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+flate2 = "1"
 rars = { version = "=0.12.3" }
 open = "5"
 rfd = "0.17"

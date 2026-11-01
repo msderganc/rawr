@@ -266,3 +266,113 @@ fn cancel_stops_zip_and_cleans_up() {
         .flatten()
         .all(|e| !e.file_name().to_string_lossy().starts_with(".rawr")));
 }
+
+fn gzip(path: &Path, members: &[&[u8]]) {
+    let mut file = fs::File::create(path).unwrap();
+    for data in members {
+        let mut encoder = flate2::write::GzEncoder::new(&mut file, flate2::Compression::fast());
+        encoder.write_all(data).unwrap();
+        encoder.finish().unwrap();
+    }
+}
+
+#[test]
+fn gzip_lists_tests_and_extracts() {
+    let root = scratch("gz");
+    let path = root.join("rates.json.gz");
+    let body = vec![b'x'; 3_000_000];
+    gzip(&path, &[&body]);
+    let listing = engine::open(&path, None, &ReadCancellation::new()).unwrap();
+    assert_eq!(listing.format, "gzip");
+    assert!(listing.size_unknown);
+    assert_eq!(listing.entries.len(), 1);
+    assert_eq!(listing.entries[0].name, "rates.json");
+    assert_eq!(engine::test(&path, None, &ReadCancellation::new(), quiet()).unwrap(), 1);
+    let out = root.join("x");
+    assert_eq!(extract(&path, &out, None, None).unwrap().written, 1);
+    assert_eq!(fs::read(out.join("rates.json")).unwrap(), body);
+}
+
+#[test]
+fn gzip_joined_streams_and_tar_names() {
+    let root = scratch("gz-multi");
+    let path = root.join("backup.tgz");
+    gzip(&path, &[b"first ", b"second"]);
+    let out = root.join("x");
+    extract(&path, &out, None, None).unwrap();
+    assert_eq!(fs::read(out.join("backup.tar")).unwrap(), b"first second");
+}
+
+#[test]
+fn gzip_damage_and_truncation_publish_nothing() {
+    let root = scratch("gz-bad");
+    let path = root.join("d.gz");
+    let body: Vec<u8> = (0..2_000_000u32).map(|i| (i * 2654435761 >> 13) as u8).collect();
+    gzip(&path, &[&body]);
+    let good = fs::read(&path).unwrap();
+    let mut flipped = good.clone();
+    let middle = flipped.len() / 2;
+    flipped[middle] ^= 0xFF;
+    for (name, bytes) in [("flipped", flipped), ("cut", good[..good.len() / 2].to_vec())] {
+        fs::write(&path, bytes).unwrap();
+        assert!(
+            engine::test(&path, None, &ReadCancellation::new(), quiet()).is_err(),
+            "{name}"
+        );
+        let out = root.join(name);
+        assert!(extract(&path, &out, None, None).is_err(), "{name}");
+        assert!(!out.join("d").exists(), "{name}");
+        assert!(fs::read_dir(&out)
+            .unwrap()
+            .flatten()
+            .all(|e| !e.file_name().to_string_lossy().starts_with(".rawr")));
+    }
+}
+
+#[test]
+fn gzip_cancel_stops_and_cleans_up() {
+    let root = scratch("gz-cancel");
+    let path = root.join("c.gz");
+    gzip(&path, &[&vec![1u8; 20_000_000]]);
+    let cancel = ReadCancellation::new();
+    let trigger = cancel.clone();
+    let stopping: ProgressFn = Arc::new(move |_| trigger.cancel());
+    let out = root.join("x");
+    let failure = engine::extract(
+        ExtractRequest {
+            archive: &path,
+            out_dir: &out,
+            password: None,
+            selected: None,
+            overwrite: false,
+        },
+        &cancel,
+        stopping,
+    )
+    .err()
+    .unwrap();
+    assert_eq!(failure.kind, "cancelled");
+    assert!(!out.join("c").exists());
+}
+
+#[test]
+fn unknown_files_are_reported_as_unsupported() {
+    let root = scratch("unknown");
+    let path = root.join("notes.txt");
+    fs::write(&path, b"just some text, long enough to read").unwrap();
+    assert_eq!(
+        engine::open(&path, None, &ReadCancellation::new()).unwrap_err().kind,
+        "unsupported"
+    );
+}
+
+/// Checks a real file end to end, without writing anything:
+/// GZ_FILE=path cargo test --release --test others real_gzip -- --ignored --nocapture
+#[test]
+#[ignore]
+fn real_gzip_file_verifies() {
+    let path = PathBuf::from(std::env::var("GZ_FILE").expect("GZ_FILE"));
+    let started = std::time::Instant::now();
+    assert_eq!(engine::test(&path, None, &ReadCancellation::new(), quiet()).unwrap(), 1);
+    println!("verified in {:?}", started.elapsed());
+}

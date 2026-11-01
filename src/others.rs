@@ -4,6 +4,7 @@ use crate::engine::{
     ProgressFn, Tracker,
 };
 use chrono::{Local, TimeZone};
+use flate2::read::MultiGzDecoder;
 use rars::{AttrSource, ExtractedEntryMeta, ReadCancellation};
 use sevenz_rust2::{ArchiveReader, Error as SevenError, Password};
 use std::cell::RefCell;
@@ -11,6 +12,7 @@ use std::collections::HashSet;
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use zip::result::ZipError;
@@ -21,6 +23,7 @@ pub enum Kind {
     Rar,
     Zip,
     SevenZ,
+    Gzip,
 }
 
 /// By content, so a misnamed file still opens with the right reader.
@@ -29,6 +32,7 @@ pub fn kind_of(path: &Path) -> Kind {
     let read = File::open(path).and_then(|mut file| file.read(&mut magic));
     match (read, &magic) {
         (Ok(6), [b'7', b'z', 0xBC, 0xAF, 0x27, 0x1C]) => Kind::SevenZ,
+        (Ok(6), [0x1F, 0x8B, ..]) => Kind::Gzip,
         (Ok(6), [b'P', b'K', 3, 4, ..] | [b'P', b'K', 5, 6, ..]) => Kind::Zip,
         _ => Kind::Rar,
     }
@@ -151,6 +155,7 @@ fn list_zip(path: &Path) -> Result<OpenedArchive, AppError> {
         comment: (!comment.is_empty()).then_some(comment),
         entries,
         warnings: Vec::new(),
+        size_unknown: false,
     })
 }
 
@@ -256,6 +261,7 @@ fn list_seven(path: &Path, password: Option<&str>) -> Result<OpenedArchive, AppE
         comment: None,
         entries,
         warnings: Vec::new(),
+        size_unknown: false,
     })
 }
 
@@ -333,11 +339,124 @@ impl Write for CountingSink<'_> {
     }
 }
 
+// ---- gzip ----
+
+/// A gzip holds one stream, so it lists as one file named after the archive.
+fn gzip_name(path: &Path) -> String {
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    let lower = name.to_ascii_lowercase();
+    if lower.ends_with(".tgz") {
+        return format!("{}.tar", &name[..name.len() - 4]);
+    }
+    let stem = if lower.ends_with(".gz") {
+        &name[..name.len() - 3]
+    } else {
+        &name
+    };
+    if stem.is_empty() {
+        "data".to_owned()
+    } else {
+        stem.to_owned()
+    }
+}
+
+fn gzip_seconds(path: &Path) -> Option<u32> {
+    let mut header = [0u8; 8];
+    File::open(path).ok()?.read_exact(&mut header).ok()?;
+    let seconds = u32::from_le_bytes([header[4], header[5], header[6], header[7]]);
+    (seconds != 0).then_some(seconds)
+}
+
+fn list_gzip(path: &Path) -> Result<OpenedArchive, AppError> {
+    let packed_size = std::fs::metadata(path)?.len();
+    Ok(OpenedArchive {
+        path: path.display().to_string(),
+        format: "gzip",
+        parts: 1,
+        is_solid: false,
+        any_encrypted: false,
+        comment: None,
+        entries: vec![Entry {
+            name: gzip_name(path),
+            is_directory: false,
+            is_link: false,
+            is_encrypted: false,
+            packed_size,
+            unpacked_size: 0,
+            modified_ms: gzip_seconds(path).map(|seconds| u64::from(seconds) * 1000),
+        }],
+        warnings: Vec::new(),
+        // gzip records the size modulo 4 GiB, so the stored figure can't be trusted.
+        size_unknown: true,
+    })
+}
+
+struct CountingRead<R> {
+    inner: R,
+    count: Arc<AtomicU64>,
+}
+
+impl<R: Read> Read for CountingRead<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let count = self.inner.read(buf)?;
+        self.count.fetch_add(count as u64, Ordering::Relaxed);
+        Ok(count)
+    }
+}
+
+/// Decompresses to the end, which is what verifies each stream's checksum. Progress
+/// follows the compressed input, the only side whose size is known in advance.
+fn pump_gzip(
+    path: &Path,
+    writer: &mut dyn Write,
+    cancel: &ReadCancellation,
+    mut progress: impl FnMut(u64, u64),
+) -> Result<(), AppError> {
+    let total = std::fs::metadata(path)?.len();
+    let read = Arc::new(AtomicU64::new(0));
+    let mut decoder = MultiGzDecoder::new(io::BufReader::with_capacity(
+        1024 * 1024,
+        CountingRead {
+            inner: File::open(path)?,
+            count: read.clone(),
+        },
+    ));
+    let mut buffer = vec![0u8; 1024 * 1024];
+    loop {
+        if cancel.is_cancelled() {
+            return Err(cancelled());
+        }
+        let count = decoder.read(&mut buffer)?;
+        if count == 0 {
+            return Ok(());
+        }
+        writer.write_all(&buffer[..count])?;
+        progress(read.load(Ordering::Relaxed), total);
+    }
+}
+
+fn extract_gzip(
+    path: &Path,
+    cancel: &ReadCancellation,
+    state: &RefCell<Extraction<'_>>,
+) -> Result<(), AppError> {
+    let name = gzip_name(path);
+    if !state.borrow().wants(&name) {
+        return Ok(());
+    }
+    let info = meta(&name, gzip_seconds(path), false);
+    let mut writer = state.borrow_mut().open_entry(&info)?;
+    pump_gzip(path, &mut writer, cancel, |done, total| {
+        state.borrow().report_input(done, total);
+    })
+}
+
 // ---- entry points ----
 
 pub fn open(path: &Path, kind: Kind, password: Option<&str>) -> Result<OpenedArchive, AppError> {
     match kind {
         Kind::Zip => list_zip(path),
+        Kind::Gzip => list_gzip(path),
         _ => list_seven(path, password),
     }
 }
@@ -364,6 +483,7 @@ pub fn extract(
     let password = request.password;
     extract_into(&request, total, emit, |state| match kind {
         Kind::Zip => extract_zip(archive, password, cancel, state),
+        Kind::Gzip => extract_gzip(archive, cancel, state),
         _ => extract_seven(archive, password, cancel, state),
     })
 }
@@ -378,6 +498,13 @@ pub fn test(
     let listing = open(path, kind, password)?;
     let total = listing.entries.iter().map(|entry| entry.unpacked_size).sum();
     let tracker: Arc<Tracker> = Tracker::new(total, emit);
+    if kind == Kind::Gzip {
+        tracker.set_current(&gzip_name(path));
+        pump_gzip(path, &mut io::sink(), cancel, |done, total| {
+            tracker.set_absolute(done, total);
+        })?;
+        return Ok(1);
+    }
     if kind == Kind::Zip {
         return test_zip(path, password, cancel, &tracker);
     }

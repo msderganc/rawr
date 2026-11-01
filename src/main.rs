@@ -158,7 +158,17 @@ impl App {
             None => listing::rows_in(&archive.entries, &state.folder),
         };
         listing::sort_rows(&mut rows, state.sort, !state.descending);
-        let ui_rows: Vec<FileRow> = rows.iter().map(ui_row).collect();
+        let size_unknown = archive.size_unknown;
+        let ui_rows: Vec<FileRow> = rows
+            .iter()
+            .map(|row| {
+                let mut shown = ui_row(row);
+                if size_unknown {
+                    shown.size = "".into();
+                }
+                shown
+            })
+            .collect();
         state.rows = rows;
         state.selected.clear();
         state.anchor = None;
@@ -399,7 +409,39 @@ impl App {
         }
     }
 
+    /// Back to the start screen. A failed open mustn't leave one archive on show
+    /// while the next action would apply to another.
+    fn close_view(&self) {
+        {
+            let mut state = self.state.borrow_mut();
+            state.archive = None;
+            state.folder.clear();
+        }
+        self.window.set_has_archive(false);
+        self.window.set_can_edit(false);
+        self.window.set_can_repair(false);
+        self.window.set_window_title("rawr".into());
+        self.window.set_extract_dest("".into());
+        self.window.set_search_text("".into());
+        self.refresh_rows();
+    }
+
     fn on_failure(&self, job: Option<Job>, error: AppError) {
+        if matches!(job, Some(Job::Open)) {
+            self.close_view();
+        }
+        if error.kind == "unsupported" {
+            self.notify(3, "rawr can't open this kind of file. It opens RAR, ZIP, 7z and gzip.");
+            return;
+        }
+        let can_repair = match job {
+            Some(Job::Open) => {
+                let path = self.state.borrow().path.to_ascii_lowercase();
+                path.ends_with(".rar") || path.ends_with(".exe")
+            }
+            Some(Job::Test) => self.window.get_can_repair(),
+            _ => false,
+        };
         let text = match job {
             Some(Job::Open) => format!("Couldn't open this archive: {}", error.message),
             Some(Job::Test) => format!("Problem found: {}", error.message),
@@ -410,7 +452,7 @@ impl App {
         };
         self.notify(3, text.as_str());
         // A damaged archive is exactly what repair is for.
-        if matches!(job, Some(Job::Open | Job::Test)) {
+        if can_repair {
             self.state.borrow_mut().notice_repair = true;
             self.window.set_notice_action("Repair".into());
         } else {
@@ -552,6 +594,8 @@ impl App {
                 extension == "rar"
                     || extension == "zip"
                     || extension == "7z"
+                    || extension == "gz"
+                    || extension == "tgz"
                     || (extension.len() == 3
                         && extension.starts_with('r')
                         && extension[1..].bytes().all(|b| b.is_ascii_digit()))
@@ -1032,10 +1076,14 @@ fn totals(archive: &OpenedArchive) -> (usize, u64, u64) {
 }
 
 fn detail_line(archive: &OpenedArchive) -> String {
-    let (count, size, _) = totals(archive);
+    let (count, size, packed) = totals(archive);
     let mut parts = vec![
         plural(count, "file"),
-        listing::format_size(size),
+        if archive.size_unknown {
+            format!("{} compressed", listing::format_size(packed))
+        } else {
+            listing::format_size(size)
+        },
         archive.format.to_owned(),
     ];
     if archive.parts > 1 {
@@ -1049,6 +1097,14 @@ fn detail_line(archive: &OpenedArchive) -> String {
 
 fn info_text(archive: &OpenedArchive) -> String {
     let (count, size, packed) = totals(archive);
+    if archive.size_unknown {
+        return format!(
+            "Format:  {}\nLocation:  {}\nCompressed:  {}\nFull size:  unknown until extracted",
+            archive.format,
+            archive.path,
+            listing::format_size(packed),
+        );
+    }
     let ratio = if size > 0 {
         format!("{:.0}%", packed as f64 / size as f64 * 100.0)
     } else {
@@ -1158,7 +1214,7 @@ fn wire(app: &Rc<App>) {
     on!(on_open_clicked, |app| {
         if let Some(path) = rfd::FileDialog::new()
             .set_title("Open archive")
-            .add_filter("Archives", &["rar", "zip", "7z", "r00", "exe"])
+            .add_filter("Archives", &["rar", "zip", "7z", "gz", "tgz", "r00", "exe"])
             .add_filter("All files", &["*"])
             .pick_file()
         {
@@ -1291,6 +1347,9 @@ fn wire(app: &Rc<App>) {
     });
     on!(on_password_cancelled, |app| {
         app.state.borrow_mut().extract_on_open = false;
+        if matches!(app.state.borrow().job, Some(Job::Open)) {
+            app.close_view();
+        }
         app.window.set_password_text("".into());
         app.window.set_sheet(Sheet::None);
     });

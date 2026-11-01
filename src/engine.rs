@@ -29,6 +29,7 @@ impl From<rars::Error> for AppError {
             ErrorKind::PasswordRequired => "password_required",
             ErrorKind::BadPassword => "bad_password",
             ErrorKind::Cancelled => "cancelled",
+            ErrorKind::UnsupportedFormat => "unsupported",
             _ => "error",
         };
         Self {
@@ -68,6 +69,8 @@ pub struct OpenedArchive {
     pub comment: Option<String>,
     pub entries: Vec<Entry>,
     pub warnings: Vec<String>,
+    /// The format can't say how big its contents are without decompressing them.
+    pub size_unknown: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -238,6 +241,7 @@ pub fn open(
         comment,
         entries,
         warnings,
+        size_unknown: false,
     })
 }
 
@@ -386,6 +390,10 @@ impl Extraction<'_> {
             }
         };
         Ok(Some((name, relative, destination)))
+    }
+
+    pub(crate) fn report_input(&self, done: u64, total: u64) {
+        self.tracker.set_absolute(done, total);
     }
 
     pub(crate) fn wants(&self, name: &str) -> bool {

@@ -23,5 +23,6 @@ Builds of rawr also contain these, under their own licences:
   its licences.
 - [zip](https://github.com/zip-rs/zip2): MIT
 - [sevenz-rust2](https://github.com/hasenbanck/sevenz-rust2): Apache-2.0
+- [flate2](https://github.com/rust-lang/flate2-rs): MIT or Apache-2.0
 - [drag](https://github.com/crabnebula-dev/drag-rs): Apache-2.0 or MIT
 - Their dependencies, listed in `Cargo.lock`

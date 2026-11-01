@@ -874,14 +874,14 @@ export component AppWindow inherits Window {
                     VerticalLayout {
                         spacing: 4px;
                         Text {
-                            text: "Drop a RAR, ZIP or 7z to open it";
+                            text: "Drop an archive to open it";
                             horizontal-alignment: center;
                             font-size: 20px;
                             font-weight: 600;
                             color: Look.text;
                         }
                         Text {
-                            text: "Or drop files and folders to make a new one";
+                            text: "RAR, ZIP, 7z or gzip. Or drop files and folders to make a new one";
                             horizontal-alignment: center;
                             font-size: 13px;
                             color: Look.muted;
@@ -1578,7 +1578,7 @@ export component AppWindow inherits Window {
             toggled => { root.context-menu-toggled(self.checked); }
         }
         Switch {
-            text: "List rawr in Open with for RAR, ZIP and 7z files";
+            text: "List rawr in Open with for RAR, ZIP, 7z and gzip files";
             checked <=> root.setting-association;
             toggled => { root.association-toggled(self.checked); }
         }
@@ -1624,7 +1624,7 @@ export component AppWindow inherits Window {
             }
         }
         Text {
-            text: "Version " + root.app-version + ". A small app for RAR, ZIP and 7z archives, built on the rars library.";
+            text: "Version " + root.app-version + ". A small app for RAR, ZIP, 7z and gzip archives, built on the rars library.";
             wrap: word-wrap;
             font-size: 13px;
             color: Look.muted;
