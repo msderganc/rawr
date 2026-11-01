@@ -1,0 +1,1249 @@
+import { AboutSlint, CheckBox, ComboBox, LineEdit, ListView, Palette, ScrollView, Switch } from "std-widgets.slint";
+
+export struct FileRow {
+    name: string,
+    size: string,
+    packed: string,
+    modified: string,
+    badge: string,
+    // -1 folder, otherwise the tint from listing::kind_of
+    kind: int,
+    selected: bool,
+}
+
+export struct Crumb {
+    label: string,
+    path: string,
+}
+
+export enum Sheet { none, password, extract, create, info, rename, confirm, details, settings, about }
+
+global Look {
+    out property <bool> dark: Palette.color-scheme == ColorScheme.dark;
+    out property <color> window: dark ? #1c1c1e : #fafafa;
+    out property <color> surface: dark ? #262628 : #ffffff;
+    out property <color> text: dark ? #f2f2f3 : #1b1b1d;
+    out property <color> muted: dark ? #a0a0a6 : #6c6c72;
+    out property <color> faint: dark ? #3a3a3e : #e7e7ea;
+    out property <color> hover: dark ? #2c2c2f : #f0f0f2;
+    out property <color> accent: dark ? #f0a23c : #c56a05;
+    out property <color> on-accent: dark ? #1c1c1e : #ffffff;
+    out property <color> selected: dark ? #4a3a22 : #fbeed9;
+    out property <color> good: dark ? #6fcf97 : #1e8449;
+    out property <color> warn: dark ? #f2c94c : #a86f00;
+    out property <color> bad: dark ? #ff8a80 : #c0392b;
+}
+
+component Glyph {
+    in property <string> commands;
+    in property <color> tint: Look.muted;
+    in property <length> size: 16px;
+    width: size;
+    height: size;
+    Path {
+        width: parent.width;
+        height: parent.height;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: root.commands;
+        fill: root.tint;
+    }
+}
+
+global Icons {
+    out property <string> folder: "M3 6.5A2.5 2.5 0 0 1 5.5 4h4l2.2 2.5h6.8A2.5 2.5 0 0 1 21 9v8.5a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z";
+    out property <string> file: "M6.5 2.5h7.2L19 7.8v11.7a2 2 0 0 1-2 2H6.5a2 2 0 0 1-2-2v-15a2 2 0 0 1 2-2zM13 4v4.5h4.5z";
+    out property <string> plus: "M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z";
+    out property <string> open: "M3 6.5A2.5 2.5 0 0 1 5.5 4h4l2.2 2.5h6.8A2.5 2.5 0 0 1 21 9v1H7.2a2 2 0 0 0-1.9 1.4L3 18.2zM7.3 12H22l-2.3 6.6a2 2 0 0 1-1.9 1.4H4.2z";
+    out property <string> down: "M11 3h2v11.2l4-4 1.4 1.4L12 18l-6.4-6.4L7 10.2l4 4zM4 19h16v2H4z";
+    out property <string> more: "M5 10.2a1.8 1.8 0 1 1 0 3.6 1.8 1.8 0 0 1 0-3.6zm7 0a1.8 1.8 0 1 1 0 3.6 1.8 1.8 0 0 1 0-3.6zm7 0a1.8 1.8 0 1 1 0 3.6 1.8 1.8 0 0 1 0-3.6z";
+    out property <string> search: "M10.5 3a7.5 7.5 0 0 1 5.9 12.1l4.8 4.8-1.4 1.4-4.8-4.8A7.5 7.5 0 1 1 10.5 3zm0 2a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11z";
+    out property <string> chevron: "M9.3 5.3 16 12l-6.7 6.7-1.4-1.4L13.2 12 7.9 6.7z";
+    out property <string> close: "M6.4 5 12 10.6 17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4z";
+    out property <string> minimize: "M4 11.2h16v1.6H4z";
+    out property <string> maximize: "M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zm.6 1.6v12.8h12.8V5.6z";
+    out property <string> restore: "M8 3h12a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-3v3a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1h4zm1.6 4H16a1 1 0 0 1 1 1v7.4h2.4V4.6H9.6zM4.6 8.6v10.8h10.8V8.6z";
+    out property <string> archive: "M4 3.5h16a1.5 1.5 0 0 1 1.5 1.5v3H2.5V5A1.5 1.5 0 0 1 4 3.5zM3.5 9.5h17V19a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2zm5.5 3v2h6v-2z";
+}
+
+component IconButton {
+    in property <string> icon;
+    in property <string> label;
+    in property <bool> primary;
+    in property <bool> enabled: true;
+    in property <string> hint;
+    callback clicked;
+    height: 34px;
+    min-width: label == "" ? 34px : 0;
+    accessible-role: button;
+    accessible-label: label != "" ? label : hint;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { root.clicked(); }
+    Rectangle {
+        border-radius: 7px;
+        background: !root.enabled ? transparent
+            : root.primary ? (touch.has-hover ? Look.accent.brighter(10%) : Look.accent)
+            : touch.pressed ? Look.faint : touch.has-hover ? Look.hover : transparent;
+        animate background { duration: 90ms; }
+    }
+    HorizontalLayout {
+        padding-left: label == "" ? 9px : 11px;
+        padding-right: label == "" ? 9px : 13px;
+        spacing: 7px;
+        alignment: center;
+        Glyph {
+            y: (parent.height - self.height) / 2;
+            commands: root.icon;
+            tint: !root.enabled ? Look.faint : root.primary ? Look.on-accent : Look.text;
+        }
+        if label != "": Text {
+            text: root.label;
+            vertical-alignment: center;
+            font-size: 13px;
+            font-weight: root.primary ? 600 : 400;
+            color: !root.enabled ? Look.muted : root.primary ? Look.on-accent : Look.text;
+        }
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+}
+
+component CaptionButton {
+    in property <string> icon;
+    in property <string> label;
+    in property <bool> danger;
+    callback clicked;
+    width: 44px;
+    height: 36px;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { root.clicked(); }
+    Rectangle {
+        background: !touch.has-hover ? transparent : root.danger ? #c42b1c : Look.hover;
+        animate background { duration: 90ms; }
+    }
+    Glyph {
+        size: 13px;
+        commands: root.icon;
+        tint: touch.has-hover && root.danger ? #ffffff : Look.text;
+    }
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+component ResizeEdge inherits TouchArea {
+    in property <string> direction;
+    callback start(string);
+    pointer-event(event) => {
+        if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+            root.start(root.direction);
+        }
+    }
+}
+
+component MenuRow {
+    in property <string> label;
+    in property <bool> enabled: true;
+    callback clicked;
+    height: 32px;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { root.clicked(); }
+    Rectangle {
+        x: 4px;
+        width: parent.width - 8px;
+        border-radius: 5px;
+        background: touch.has-hover && root.enabled ? Look.hover : transparent;
+    }
+    Text {
+        x: 14px;
+        text: root.label;
+        vertical-alignment: center;
+        font-size: 13px;
+        color: root.enabled ? Look.text : Look.muted;
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+}
+
+component HeaderCell {
+    in property <string> label;
+    in property <bool> active;
+    in property <bool> ascending;
+    in property <TextHorizontalAlignment> align: left;
+    callback clicked;
+    Text {
+        width: 100%;
+        height: 100%;
+        text: root.label + (root.active ? (root.ascending ? "  ↑" : "  ↓") : "");
+        font-size: 12px;
+        vertical-alignment: center;
+        horizontal-alignment: root.align;
+        color: touch.has-hover || root.active ? Look.text : Look.muted;
+    }
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+component SheetCard {
+    width: 100%;
+    height: 100%;
+    in property <string> title;
+    in property <length> card-width: 440px;
+    callback dismissed;
+    Rectangle {
+        background: Look.dark ? #000000a0 : #00000050;
+        TouchArea {
+            clicked => { root.dismissed(); }
+        }
+    }
+    Rectangle {
+        width: min(root.card-width, root.width - 40px);
+        height: min(content.preferred-height, root.height - 40px);
+        border-radius: 12px;
+        background: Look.surface;
+        drop-shadow-blur: 28px;
+        drop-shadow-color: #00000050;
+        drop-shadow-offset-y: 8px;
+        TouchArea { }
+        content := VerticalLayout {
+            padding: 22px;
+            spacing: 14px;
+            Text {
+                text: root.title;
+                font-size: 17px;
+                font-weight: 600;
+                color: Look.text;
+                wrap: word-wrap;
+            }
+            @children
+        }
+    }
+}
+
+component FieldLabel inherits Text {
+    font-size: 12px;
+    color: Look.muted;
+}
+
+component Field inherits VerticalLayout {
+    in property <string> label;
+    spacing: 5px;
+    FieldLabel { text: root.label; }
+    @children
+}
+
+component Button {
+    in property <string> text;
+    in property <bool> primary;
+    in property <bool> enabled: true;
+    callback clicked;
+    min-width: max(84px, label.preferred-width + 28px);
+    height: 34px;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { root.clicked(); }
+    Rectangle {
+        border-radius: 7px;
+        border-width: root.primary ? 0 : 1px;
+        border-color: Look.faint;
+        background: root.primary ? (touch.has-hover && root.enabled ? Look.accent.brighter(10%) : Look.accent)
+            : touch.has-hover && root.enabled ? Look.hover : Look.surface;
+        opacity: root.enabled ? 1 : 0.45;
+        animate background { duration: 90ms; }
+    }
+    label := Text {
+        text: root.text;
+        font-size: 13px;
+        font-weight: root.primary ? 600 : 400;
+        color: root.primary ? Look.on-accent : Look.text;
+        opacity: root.enabled ? 1 : 0.6;
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component AppWindow inherits Window {
+    title: root.window-title;
+    icon: @image-url("icon.png");
+    preferred-width: 920px;
+    preferred-height: 620px;
+    min-width: 560px;
+    min-height: 400px;
+    no-frame: true;
+    background: Look.window;
+    default-font-family: "Segoe UI Variable Text";
+
+    property <bool> show-packed: true;
+    property <bool> show-modified: true;
+    changed search-text => { root.search-edited(); }
+    changed width => {
+        self.show-packed = self.width > 720px;
+        self.show-modified = self.width > 640px;
+    }
+
+    in property <string> window-title: "rawr";
+    in property <bool> has-archive;
+    in property <string> archive-name;
+    in property <string> archive-detail;
+    in property <[FileRow]> rows;
+    in property <[Crumb]> crumbs;
+    in-out property <string> search-text;
+    in property <int> sort-column: 0;
+    in property <bool> sort-ascending: true;
+    in property <int> selected-count;
+    in property <bool> dropping;
+    in property <bool> can-edit;
+
+    in property <bool> busy;
+    in property <string> busy-title;
+    in property <string> busy-detail;
+    in property <string> busy-stats;
+    in property <float> busy-fraction;
+    in property <bool> cancelling;
+
+    in property <string> notice;
+    // 0 neutral, 1 good, 2 warning, 3 problem
+    in property <int> notice-kind;
+    in property <string> notice-action;
+
+    in-out property <Sheet> sheet: Sheet.none;
+
+    in property <string> password-prompt;
+    in-out property <string> password-text;
+    in property <string> extract-title;
+    in-out property <string> extract-dest;
+    in-out property <int> extract-overwrite: 0;
+    in-out property <string> create-output;
+    in property <string> create-summary;
+    in-out property <int> create-format: 1;
+    in-out property <int> create-level: 2;
+    in-out property <bool> create-more;
+    in-out property <bool> create-solid;
+    in-out property <string> create-password;
+    in-out property <bool> create-hide-names;
+    in-out property <int> create-split: 0;
+    in-out property <int> create-recovery: 0;
+    in-out property <string> create-comment;
+    in property <string> info-text;
+    in property <string> info-comment;
+    in-out property <string> rename-text;
+    in property <string> confirm-title;
+    in property <string> confirm-body;
+    in property <string> confirm-action;
+    in property <string> details-title;
+    in property <string> details-text;
+    in-out property <int> theme-choice: 0;
+    in-out property <bool> setting-context-menu;
+    in-out property <bool> setting-association;
+    in property <string> settings-note;
+
+    in property <bool> maximized;
+    callback title-pressed();
+    callback minimize-clicked();
+    callback maximize-clicked();
+    callback close-clicked();
+    callback resize-from(string);
+    callback open-clicked();
+    callback new-clicked();
+    callback add-files-clicked();
+    callback add-folder-clicked();
+    callback extract-clicked();
+    callback test-clicked();
+    callback repair-clicked();
+    callback info-clicked();
+    callback settings-clicked();
+    callback about-clicked();
+    callback close-archive-clicked();
+    callback cancel-clicked();
+    callback notice-action-clicked();
+    callback notice-dismissed();
+    callback crumb-clicked(string);
+    callback search-edited();
+    callback sort-clicked(int);
+    callback row-clicked(int, bool, bool);
+    callback row-activated(int);
+    callback row-menu(int, string);
+    callback background-clicked();
+    callback navigate-key(string, bool) -> bool;
+    callback password-submitted();
+    callback password-cancelled();
+    callback extract-confirmed();
+    callback browse-extract();
+    callback create-confirmed();
+    callback browse-create();
+    callback rename-confirmed();
+    callback confirm-accepted();
+    callback confirm-declined();
+    callback theme-changed(int);
+    callback context-menu-toggled(bool);
+    callback association-toggled(bool);
+
+    public function show-row(index: int) {
+        let top = index * 32px;
+        if top < -list.content-y {
+            list.content-y = -top;
+        } else if top + 32px > -list.content-y + list.visible-height {
+            list.content-y = -(top + 32px - list.visible-height);
+        }
+    }
+
+    public function focus-list() {
+        keys.focus();
+    }
+
+    keys := FocusScope {
+        key-pressed(event) => {
+            if root.sheet != Sheet.none || root.busy || !root.has-archive {
+                return reject;
+            }
+            if event.text == Key.UpArrow { return root.navigate-key("up", event.modifiers.shift) ? accept : reject; }
+            if event.text == Key.DownArrow { return root.navigate-key("down", event.modifiers.shift) ? accept : reject; }
+            if event.text == Key.Home { return root.navigate-key("home", event.modifiers.shift) ? accept : reject; }
+            if event.text == Key.End { return root.navigate-key("end", event.modifiers.shift) ? accept : reject; }
+            if event.text == Key.Return { return root.navigate-key("enter", false) ? accept : reject; }
+            if event.text == Key.Backspace { return root.navigate-key("back", false) ? accept : reject; }
+            if event.text == Key.Delete { return root.navigate-key("delete", false) ? accept : reject; }
+            if event.text == Key.F2 { return root.navigate-key("rename", false) ? accept : reject; }
+            if event.modifiers.control && (event.text == "a" || event.text == "A") { return root.navigate-key("all", false) ? accept : reject; }
+            if event.modifiers.control && (event.text == "f" || event.text == "F") { search.focus(); return accept; }
+            reject
+        }
+
+        VerticalLayout {
+            // ---- top bar ----
+            Rectangle {
+                height: 56px;
+                TouchArea {
+                    pointer-event(event) => {
+                        if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                            root.title-pressed();
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    padding-left: 14px;
+                    padding-right: 0;
+                    spacing: 6px;
+                    alignment: stretch;
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        alignment: center;
+                        min-width: 120px;
+                        Text {
+                            text: root.has-archive ? root.archive-name : "rawr";
+                            font-size: 15px;
+                            font-weight: 600;
+                            color: Look.text;
+                            overflow: elide;
+                        }
+                        if root.has-archive: Text {
+                            text: root.archive-detail;
+                            font-size: 12px;
+                            color: Look.muted;
+                            overflow: elide;
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        horizontal-stretch: 0;
+                        search-box := Rectangle {
+                            visible: root.has-archive;
+                            width: root.has-archive ? 190px : 0;
+                            height: 32px;
+                            border-radius: 7px;
+                            background: Look.hover;
+                            border-width: search.has-focus ? 1px : 0;
+                            border-color: Look.accent;
+                            HorizontalLayout {
+                                padding-left: 9px;
+                                padding-right: 8px;
+                                spacing: 6px;
+                                VerticalLayout {
+                                    alignment: center;
+                                    Glyph { commands: Icons.search; size: 14px; }
+                                }
+                                search := TextInput {
+                                    text <=> root.search-text;
+                                    font-size: 13px;
+                                    color: Look.text;
+                                    vertical-alignment: center;
+                                    single-line: true;
+                                    accessible-role: text-input;
+                                    accessible-label: "Search this archive";
+                                }
+                            }
+                            Text {
+                                x: 30px;
+                                visible: root.search-text == "";
+                                text: "Search";
+                                font-size: 13px;
+                                color: Look.muted;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        horizontal-stretch: 0;
+                        HorizontalLayout {
+                            spacing: 4px;
+                            if root.has-archive: IconButton {
+                                icon: Icons.plus;
+                                label: "Add";
+                                enabled: !root.busy && root.can-edit;
+                                clicked => { add-menu.show(); }
+                            }
+                            if root.has-archive: IconButton {
+                                icon: Icons.down;
+                                label: root.selected-count > 0 ? "Extract " + root.selected-count : "Extract";
+                                primary: true;
+                                enabled: !root.busy;
+                                clicked => { root.extract-clicked(); }
+                            }
+                            IconButton {
+                                icon: Icons.more;
+                                hint: "More";
+                                clicked => { more-menu.show(); }
+                            }
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: start;
+                        horizontal-stretch: 0;
+                        HorizontalLayout {
+                            CaptionButton {
+                                icon: Icons.minimize;
+                                label: "Minimize";
+                                clicked => { root.minimize-clicked(); }
+                            }
+                            CaptionButton {
+                                icon: root.maximized ? Icons.restore : Icons.maximize;
+                                label: root.maximized ? "Restore" : "Maximize";
+                                clicked => { root.maximize-clicked(); }
+                            }
+                            CaptionButton {
+                                icon: Icons.close;
+                                label: "Close";
+                                danger: true;
+                                clicked => { root.close-clicked(); }
+                            }
+                        }
+                    }
+                }
+                Rectangle {
+                    y: parent.height - 1px;
+                    height: 1px;
+                    background: Look.faint;
+                }
+            }
+
+            // ---- contents ----
+            Rectangle {
+                vertical-stretch: 1;
+                if !root.has-archive: VerticalLayout {
+                    alignment: center;
+                    spacing: 20px;
+                    HorizontalLayout {
+                        alignment: center;
+                        Glyph { commands: Icons.archive; size: 56px; tint: Look.faint; }
+                    }
+                    VerticalLayout {
+                        spacing: 4px;
+                        Text {
+                            text: "Drop an archive to open it";
+                            horizontal-alignment: center;
+                            font-size: 20px;
+                            font-weight: 600;
+                            color: Look.text;
+                        }
+                        Text {
+                            text: "Or drop files and folders to make a new one";
+                            horizontal-alignment: center;
+                            font-size: 13px;
+                            color: Look.muted;
+                        }
+                    }
+                    HorizontalLayout {
+                        alignment: center;
+                        spacing: 8px;
+                        IconButton {
+                            icon: Icons.open;
+                            label: "Open archive";
+                            primary: true;
+                            enabled: !root.busy;
+                            clicked => { root.open-clicked(); }
+                        }
+                        IconButton {
+                            icon: Icons.plus;
+                            label: "New archive";
+                            enabled: !root.busy;
+                            clicked => { root.new-clicked(); }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    visible: root.has-archive;
+                    VerticalLayout {
+                    // Where we are, unless searching
+                    Rectangle {
+                        height: 34px;
+                        HorizontalLayout {
+                            padding-left: 12px;
+                            padding-right: 14px;
+                            alignment: start;
+                            for crumb[index] in root.crumbs: HorizontalLayout {
+                                if index > 0: VerticalLayout {
+                                    alignment: center;
+                                    Glyph { commands: Icons.chevron; size: 12px; }
+                                }
+                                Rectangle {
+                                    width: crumb-text.preferred-width + 10px;
+                                    border-radius: 4px;
+                                    background: crumb-touch.has-hover && index < root.crumbs.length - 1 ? Look.hover : transparent;
+                                    crumb-text := Text {
+                                        text: crumb.label;
+                                        font-size: 12px;
+                                        color: index == root.crumbs.length - 1 ? Look.text : Look.muted;
+                                        vertical-alignment: center;
+                                    }
+                                    crumb-touch := TouchArea {
+                                        clicked => { root.crumb-clicked(crumb.path); }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    // Column headings
+                    HorizontalLayout {
+                        height: 26px;
+                        padding-left: 16px;
+                        padding-right: 16px;
+                        spacing: 12px;
+                        HeaderCell {
+                            horizontal-stretch: 1;
+                            min-width: 120px;
+                            label: "Name";
+                            active: root.sort-column == 0;
+                            ascending: root.sort-ascending;
+                            clicked => { root.sort-clicked(0); }
+                        }
+                        HeaderCell {
+                            width: 80px;
+                            label: "Size";
+                            align: right;
+                            active: root.sort-column == 1;
+                            ascending: root.sort-ascending;
+                            clicked => { root.sort-clicked(1); }
+                        }
+                        if root.show-packed: HeaderCell {
+                            width: 80px;
+                            label: "Packed";
+                            align: right;
+                            active: root.sort-column == 2;
+                            ascending: root.sort-ascending;
+                            clicked => { root.sort-clicked(2); }
+                        }
+                        if root.show-modified: HeaderCell {
+                            width: 130px;
+                            label: "Modified";
+                            active: root.sort-column == 3;
+                            ascending: root.sort-ascending;
+                            clicked => { root.sort-clicked(3); }
+                        }
+                    }
+                    Rectangle {
+                        vertical-stretch: 1;
+                        TouchArea {
+                            clicked => {
+                                root.background-clicked();
+                                keys.focus();
+                            }
+                        }
+                        list := ListView {
+                            for row[index] in root.rows: ContextMenuArea {
+                                height: 32px;
+                                Menu {
+                                    MenuItem {
+                                        title: row.kind == -1 ? "Open folder" : "Open";
+                                        activated => { root.row-menu(index, "open"); }
+                                    }
+                                    MenuItem {
+                                        title: "Extract";
+                                        activated => { root.row-menu(index, "extract"); }
+                                    }
+                                    MenuSeparator { }
+                                    MenuItem {
+                                        title: "Rename";
+                                        enabled: root.can-edit && !root.busy;
+                                        activated => { root.row-menu(index, "rename"); }
+                                    }
+                                    MenuItem {
+                                        title: "Delete";
+                                        enabled: root.can-edit && !root.busy;
+                                        activated => { root.row-menu(index, "delete"); }
+                                    }
+                                }
+                                Rectangle {
+                                    x: 6px;
+                                    width: parent.width - 12px;
+                                    border-radius: 6px;
+                                    background: row.selected ? Look.selected : row-touch.has-hover ? Look.hover : transparent;
+                                }
+                                HorizontalLayout {
+                                    padding-left: 16px;
+                                    padding-right: 16px;
+                                    spacing: 12px;
+                                    HorizontalLayout {
+                                        horizontal-stretch: 1;
+                                        min-width: 120px;
+                                        spacing: 9px;
+                                        VerticalLayout {
+                                            alignment: center;
+                                            Glyph {
+                                                size: 17px;
+                                                commands: row.kind == -1 ? Icons.folder : Icons.file;
+                                                tint: row.kind == -1 ? Look.accent
+                                                    : row.kind == 1 ? #3f9ae0
+                                                    : row.kind == 2 ? #b76fd6
+                                                    : row.kind == 3 ? #e0637a
+                                                    : row.kind == 4 ? #d9a02e
+                                                    : row.kind == 5 ? #3fb28f
+                                                    : row.kind == 6 ? #7c86e0
+                                                    : Look.muted;
+                                            }
+                                        }
+                                        Text {
+                                            horizontal-stretch: 1;
+                                            text: row.name;
+                                            font-size: 13px;
+                                            color: Look.text;
+                                            vertical-alignment: center;
+                                            overflow: elide;
+                                        }
+                                        if row.badge != "": Text {
+                                            text: row.badge;
+                                            font-size: 11px;
+                                            color: Look.muted;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+                                    Text {
+                                        width: 80px;
+                                        text: row.size;
+                                        font-size: 12px;
+                                        color: Look.muted;
+                                        horizontal-alignment: right;
+                                        vertical-alignment: center;
+                                    }
+                                    if root.show-packed: Text {
+                                        width: 80px;
+                                        text: row.packed;
+                                        font-size: 12px;
+                                        color: Look.muted;
+                                        horizontal-alignment: right;
+                                        vertical-alignment: center;
+                                    }
+                                    if root.show-modified: Text {
+                                        width: 130px;
+                                        text: row.modified;
+                                        font-size: 12px;
+                                        color: Look.muted;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                                row-touch := TouchArea {
+                                    accessible-role: list-item;
+                                    accessible-label: row.name;
+                                    accessible-item-selected: row.selected;
+                                    accessible-action-default => { root.row-activated(index); }
+                                    double-clicked => { root.row-activated(index); }
+                                    pointer-event(event) => {
+                                        if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                                            root.row-clicked(index, event.modifiers.control, event.modifiers.shift);
+                                            keys.focus();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if root.rows.length == 0: Text {
+                            text: root.search-text != "" ? "Nothing matches that search" : "This folder is empty";
+                            font-size: 13px;
+                            color: Look.muted;
+                        }
+                    }
+                    }
+                }
+            }
+
+            // ---- notice ----
+            if root.notice != "" && !root.busy: Rectangle {
+                height: 40px;
+                background: root.notice-kind == 1 ? (Look.dark ? #1f3327 : #e8f5ec)
+                    : root.notice-kind == 2 ? (Look.dark ? #3a3119 : #fdf4dc)
+                    : root.notice-kind == 3 ? (Look.dark ? #40231f : #fbe9e7)
+                    : Look.hover;
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 8px;
+                    spacing: 6px;
+                    Text {
+                        horizontal-stretch: 1;
+                        text: root.notice;
+                        font-size: 13px;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        color: root.notice-kind == 1 ? Look.good
+                            : root.notice-kind == 2 ? Look.warn
+                            : root.notice-kind == 3 ? Look.bad
+                            : Look.text;
+                    }
+                    if root.notice-action != "": VerticalLayout {
+                        alignment: center;
+                        horizontal-stretch: 0;
+                        IconButton {
+                            height: 28px;
+                            icon: "";
+                            label: root.notice-action;
+                            clicked => { root.notice-action-clicked(); }
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        horizontal-stretch: 0;
+                        IconButton {
+                            height: 28px;
+                            icon: Icons.close;
+                            hint: "Dismiss";
+                            clicked => { root.notice-dismissed(); }
+                        }
+                    }
+                }
+            }
+
+            // ---- progress ----
+            if root.busy: Rectangle {
+                height: 58px;
+                background: Look.surface;
+                Rectangle {
+                    y: 0;
+                    height: 1px;
+                    background: Look.faint;
+                }
+                Rectangle {
+                    x: 0;
+                    y: 0;
+                    height: 3px;
+                    width: parent.width * clamp(root.busy-fraction, 0, 1);
+                    background: Look.accent;
+                    animate width { duration: 150ms; }
+                }
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 10px;
+                    padding-top: 6px;
+                    spacing: 12px;
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        alignment: center;
+                        Text {
+                            text: root.cancelling ? "Cancelling…" : root.busy-title;
+                            font-size: 13px;
+                            font-weight: 600;
+                            color: Look.text;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: root.busy-detail;
+                            font-size: 12px;
+                            color: Look.muted;
+                            overflow: elide;
+                        }
+                    }
+                    Text {
+                        horizontal-stretch: 0;
+                        text: root.busy-stats;
+                        font-size: 12px;
+                        color: Look.muted;
+                        vertical-alignment: center;
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        horizontal-stretch: 0;
+                        IconButton {
+                            label: "Cancel";
+                            icon: Icons.close;
+                            enabled: !root.cancelling;
+                            clicked => { root.cancel-clicked(); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ---- drop highlight ----
+    if root.dropping: Rectangle {
+        x: 10px;
+        y: 10px;
+        width: parent.width - 20px;
+        height: parent.height - 20px;
+        border-radius: 12px;
+        border-width: 2px;
+        border-color: Look.accent;
+        background: Look.accent.with-alpha(0.08);
+    }
+
+    // ---- menus ----
+    add-menu := PopupWindow {
+        x: root.width - 430px;
+        y: 50px;
+        width: 180px;
+        Rectangle {
+            background: Look.surface;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Look.faint;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #00000040;
+        }
+        VerticalLayout {
+            padding-top: 4px;
+            padding-bottom: 4px;
+            MenuRow { label: "Add files…"; clicked => { add-menu.close(); root.add-files-clicked(); } }
+            MenuRow { label: "Add folder…"; clicked => { add-menu.close(); root.add-folder-clicked(); } }
+        }
+    }
+
+    more-menu := PopupWindow {
+        x: root.width - 350px;
+        y: 50px;
+        width: 206px;
+        Rectangle {
+            background: Look.surface;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Look.faint;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #00000040;
+        }
+        VerticalLayout {
+            padding-top: 4px;
+            padding-bottom: 4px;
+            MenuRow { label: "Open archive…"; enabled: !root.busy; clicked => { more-menu.close(); root.open-clicked(); } }
+            MenuRow { label: "New archive…"; enabled: !root.busy; clicked => { more-menu.close(); root.new-clicked(); } }
+            Rectangle { height: 9px; Rectangle { height: 1px; background: Look.faint; } }
+            MenuRow { label: "Test integrity"; enabled: root.has-archive && !root.busy; clicked => { more-menu.close(); root.test-clicked(); } }
+            MenuRow { label: "Repair…"; enabled: root.has-archive && !root.busy; clicked => { more-menu.close(); root.repair-clicked(); } }
+            MenuRow { label: "Archive details"; enabled: root.has-archive; clicked => { more-menu.close(); root.info-clicked(); } }
+            MenuRow { label: "Close archive"; enabled: root.has-archive && !root.busy; clicked => { more-menu.close(); root.close-archive-clicked(); } }
+            Rectangle { height: 9px; Rectangle { height: 1px; background: Look.faint; } }
+            MenuRow { label: "Settings"; clicked => { more-menu.close(); root.settings-clicked(); } }
+            MenuRow { label: "About rawr"; clicked => { more-menu.close(); root.about-clicked(); } }
+        }
+    }
+
+    // ---- sheets ----
+    if root.sheet == Sheet.password: SheetCard {
+        title: "Password";
+        card-width: 400px;
+        dismissed => { root.password-cancelled(); }
+        Text {
+            text: root.password-prompt;
+            wrap: word-wrap;
+            font-size: 13px;
+            color: Look.muted;
+        }
+        password-input := LineEdit {
+            input-type: password;
+            text <=> root.password-text;
+            placeholder-text: "Password";
+            accepted => { root.password-submitted(); }
+            init => { self.focus(); }
+        }
+        HorizontalLayout {
+            alignment: end;
+            spacing: 8px;
+            Button { text: "Cancel"; clicked => { root.password-cancelled(); } }
+            Button { text: "OK"; primary: true; clicked => { root.password-submitted(); } }
+        }
+    }
+
+    if root.sheet == Sheet.extract: SheetCard {
+        title: root.extract-title;
+        dismissed => { root.sheet = Sheet.none; }
+        Field {
+            label: "Destination";
+            HorizontalLayout {
+                spacing: 8px;
+                LineEdit {
+                    text <=> root.extract-dest;
+                    accepted => { root.extract-confirmed(); }
+                }
+                Button { text: "Browse"; clicked => { root.browse-extract(); } }
+            }
+        }
+        Field {
+            label: "If a file already exists";
+            ComboBox {
+                model: ["Skip it", "Replace it"];
+                current-index <=> root.extract-overwrite;
+            }
+        }
+        HorizontalLayout {
+            alignment: end;
+            spacing: 8px;
+            Button { text: "Cancel"; clicked => { root.sheet = Sheet.none; } }
+            Button { text: "Extract"; primary: true; enabled: root.extract-dest != ""; clicked => { root.extract-confirmed(); } }
+        }
+    }
+
+    if root.sheet == Sheet.create: SheetCard {
+        title: "New archive";
+        card-width: 480px;
+        dismissed => { root.sheet = Sheet.none; }
+        Text {
+            text: root.create-summary;
+            wrap: word-wrap;
+            font-size: 13px;
+            color: Look.muted;
+        }
+        Field {
+            label: "Save as";
+            HorizontalLayout {
+                spacing: 8px;
+                LineEdit { text <=> root.create-output; }
+                Button { text: "Browse"; clicked => { root.browse-create(); } }
+            }
+        }
+        HorizontalLayout {
+            spacing: 10px;
+            Field {
+                label: "Compression";
+                ComboBox {
+                    model: ["None (fastest)", "Fast", "Normal", "Best (slowest)"];
+                    current-index <=> root.create-level;
+                }
+            }
+            Field {
+                label: "Password (optional)";
+                LineEdit {
+                    input-type: password;
+                    text <=> root.create-password;
+                }
+            }
+        }
+        HorizontalLayout {
+            alignment: start;
+            Text {
+                text: root.create-more ? "Fewer options" : "More options";
+                font-size: 13px;
+                color: Look.accent;
+                TouchArea { clicked => { root.create-more = !root.create-more; } }
+            }
+        }
+        if root.create-more: VerticalLayout {
+            spacing: 12px;
+            HorizontalLayout {
+                spacing: 10px;
+                Field {
+                    label: "Format";
+                    ComboBox {
+                        model: ["RAR 4 (oldest tools)", "RAR 5 (recommended)", "RAR 7 (newest tools)"];
+                        current-index <=> root.create-format;
+                    }
+                }
+                Field {
+                    label: "Split into parts";
+                    ComboBox {
+                        model: ["Don't split", "100 MB", "700 MB", "1 GB", "4 GB"];
+                        current-index <=> root.create-split;
+                    }
+                }
+                Field {
+                    label: "Recovery record";
+                    ComboBox {
+                        model: ["None", "3%", "5%", "10%"];
+                        current-index <=> root.create-recovery;
+                    }
+                }
+            }
+            Field {
+                label: "Comment";
+                LineEdit { text <=> root.create-comment; }
+            }
+            CheckBox { text: "Solid (smaller, but slower to change)"; checked <=> root.create-solid; }
+            CheckBox {
+                text: "Hide file names (needs a password)";
+                checked <=> root.create-hide-names;
+                enabled: root.create-password != "";
+            }
+        }
+        HorizontalLayout {
+            alignment: end;
+            spacing: 8px;
+            Button { text: "Cancel"; clicked => { root.sheet = Sheet.none; } }
+            Button { text: "Create"; primary: true; enabled: root.create-output != ""; clicked => { root.create-confirmed(); } }
+        }
+    }
+
+    if root.sheet == Sheet.info: SheetCard {
+        title: root.archive-name;
+        dismissed => { root.sheet = Sheet.none; }
+        Text {
+            text: root.info-text;
+            font-size: 13px;
+            color: Look.text;
+            wrap: word-wrap;
+        }
+        if root.info-comment != "": Field {
+            label: "Comment";
+            ScrollView {
+                max-height: 180px;
+                content-height: comment-text.preferred-height;
+                comment-text := Text {
+                    width: parent.visible-width;
+                    text: root.info-comment;
+                    wrap: word-wrap;
+                    font-size: 13px;
+                    color: Look.text;
+                }
+            }
+        }
+        HorizontalLayout {
+            alignment: end;
+            Button { text: "Close"; clicked => { root.sheet = Sheet.none; } }
+        }
+    }
+
+    if root.sheet == Sheet.rename: SheetCard {
+        title: "Rename";
+        card-width: 400px;
+        dismissed => { root.sheet = Sheet.none; }
+        LineEdit {
+            text <=> root.rename-text;
+            accepted => { root.rename-confirmed(); }
+            init => { self.focus(); self.select-all(); }
+        }
+        HorizontalLayout {
+            alignment: end;
+            spacing: 8px;
+            Button { text: "Cancel"; clicked => { root.sheet = Sheet.none; } }
+            Button { text: "Rename"; primary: true; enabled: root.rename-text != ""; clicked => { root.rename-confirmed(); } }
+        }
+    }
+
+    if root.sheet == Sheet.confirm: SheetCard {
+        title: root.confirm-title;
+        card-width: 400px;
+        dismissed => { root.confirm-declined(); }
+        Text {
+            text: root.confirm-body;
+            wrap: word-wrap;
+            font-size: 13px;
+            color: Look.muted;
+        }
+        HorizontalLayout {
+            alignment: end;
+            spacing: 8px;
+            Button { text: "Cancel"; clicked => { root.confirm-declined(); } }
+            Button { text: root.confirm-action; primary: true; clicked => { root.confirm-accepted(); } }
+        }
+    }
+
+    if root.sheet == Sheet.details: SheetCard {
+        title: root.details-title;
+        card-width: 560px;
+        dismissed => { root.sheet = Sheet.none; }
+        ScrollView {
+            min-height: 120px;
+            max-height: 340px;
+            content-height: details.preferred-height;
+            details := Text {
+                width: parent.visible-width;
+                text: root.details-text;
+                wrap: word-wrap;
+                font-size: 13px;
+                color: Look.text;
+            }
+        }
+        HorizontalLayout {
+            alignment: end;
+            Button { text: "Close"; clicked => { root.sheet = Sheet.none; } }
+        }
+    }
+
+    if root.sheet == Sheet.settings: SheetCard {
+        title: "Settings";
+        dismissed => { root.sheet = Sheet.none; }
+        Field {
+            label: "Appearance";
+            ComboBox {
+                model: ["Match Windows", "Light", "Dark"];
+                current-index <=> root.theme-choice;
+                selected => { root.theme-changed(self.current-index); }
+            }
+        }
+        Switch {
+            text: "\"Extract here\" and \"Add to archive\" in Explorer";
+            checked <=> root.setting-context-menu;
+            toggled => { root.context-menu-toggled(self.checked); }
+        }
+        Switch {
+            text: "Open .rar files with rawr";
+            checked <=> root.setting-association;
+            toggled => { root.association-toggled(self.checked); }
+        }
+        if root.settings-note != "": Text {
+            text: root.settings-note;
+            wrap: word-wrap;
+            font-size: 12px;
+            color: Look.muted;
+        }
+        HorizontalLayout {
+            alignment: end;
+            Button { text: "Close"; clicked => { root.sheet = Sheet.none; } }
+        }
+    }
+
+    if root.sheet == Sheet.about: SheetCard {
+        title: "rawr";
+        card-width: 380px;
+        dismissed => { root.sheet = Sheet.none; }
+        Text {
+            text: "A small app for RAR archives, built on the rars library.";
+            wrap: word-wrap;
+            font-size: 13px;
+            color: Look.muted;
+        }
+        AboutSlint { }
+        HorizontalLayout {
+            alignment: end;
+            Button { text: "Close"; clicked => { root.sheet = Sheet.none; } }
+        }
+    }
+
+    // ---- resizing, now the system frame is gone ----
+    if !root.maximized: ResizeEdge { x: 8px; y: 0; width: parent.width - 16px; height: 4px; direction: "n"; mouse-cursor: ns-resize; start(d) => { root.resize-from(d); } }
+    if !root.maximized: ResizeEdge { x: 8px; y: parent.height - 5px; width: parent.width - 16px; height: 5px; direction: "s"; mouse-cursor: ns-resize; start(d) => { root.resize-from(d); } }
+    if !root.maximized: ResizeEdge { x: 0; y: 8px; width: 5px; height: parent.height - 16px; direction: "w"; mouse-cursor: ew-resize; start(d) => { root.resize-from(d); } }
+    if !root.maximized: ResizeEdge { x: parent.width - 5px; y: 8px; width: 5px; height: parent.height - 16px; direction: "e"; mouse-cursor: ew-resize; start(d) => { root.resize-from(d); } }
+    if !root.maximized: ResizeEdge { x: 0; y: 0; width: 8px; height: 8px; direction: "nw"; mouse-cursor: nwse-resize; start(d) => { root.resize-from(d); } }
+    if !root.maximized: ResizeEdge { x: parent.width - 8px; y: 0; width: 8px; height: 4px; direction: "ne"; mouse-cursor: nesw-resize; start(d) => { root.resize-from(d); } }
+    if !root.maximized: ResizeEdge { x: 0; y: parent.height - 8px; width: 8px; height: 8px; direction: "sw"; mouse-cursor: nesw-resize; start(d) => { root.resize-from(d); } }
+    if !root.maximized: ResizeEdge { x: parent.width - 8px; y: parent.height - 8px; width: 8px; height: 8px; direction: "se"; mouse-cursor: nwse-resize; start(d) => { root.resize-from(d); } }
+}
+
+export { Palette }

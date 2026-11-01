@@ -87,7 +87,7 @@ pub type ProgressFn = Arc<dyn Fn(Progress) + Send + Sync>;
 /// Legacy archives without Unicode names most often come from DOS/OEM tools.
 const LEGACY_FALLBACK: LegacyNameEncoding = LegacyNameEncoding::Cp437;
 
-fn display_name(family: ArchiveFamily, raw: &[u8], unicode: bool) -> String {
+pub(crate) fn display_name(family: ArchiveFamily, raw: &[u8], unicode: bool) -> String {
     if family == ArchiveFamily::Rar50Plus {
         // RAR 5 names use '/'; a backslash is a literal character, unusable on Windows.
         return String::from_utf8_lossy(raw).replace('\\', "_");
@@ -130,14 +130,14 @@ pub fn safe_relative(name: &str) -> Result<PathBuf, String> {
     Ok(path)
 }
 
-fn options<'a>(
+pub(crate) fn options<'a>(
     password: Option<&'a [u8]>,
     cancel: &'a ReadCancellation,
 ) -> ArchiveReadOptions<'a> {
     ArchiveReadOptions::with_optional_password(password).with_cancellation(cancel)
 }
 
-fn load(
+pub(crate) fn load(
     path: &Path,
     password: Option<&[u8]>,
     cancel: &ReadCancellation,
@@ -216,28 +216,34 @@ pub fn open(
     })
 }
 
-struct Tracker {
+pub(crate) struct Tracker {
     done: AtomicU64,
-    total: u64,
+    total: AtomicU64,
     current: Mutex<String>,
     last_emit: Mutex<Instant>,
     emit: ProgressFn,
 }
 
 impl Tracker {
-    fn new(total: u64, emit: ProgressFn) -> Arc<Self> {
+    pub(crate) fn new(total: u64, emit: ProgressFn) -> Arc<Self> {
         Arc::new(Self {
             done: AtomicU64::new(0),
-            total,
+            total: AtomicU64::new(total),
             current: Mutex::new(String::new()),
             last_emit: Mutex::new(Instant::now() - Duration::from_secs(1)),
             emit,
         })
     }
 
-    fn set_current(&self, name: &str) {
+    pub(crate) fn set_current(&self, name: &str) {
         *self.current.lock().unwrap() = name.to_owned();
         self.report(true);
+    }
+
+    pub(crate) fn set_absolute(&self, done: u64, total: u64) {
+        self.done.store(done, Ordering::Relaxed);
+        self.total.store(total, Ordering::Relaxed);
+        self.report(false);
     }
 
     fn add(&self, bytes: u64) {
@@ -251,7 +257,7 @@ impl Tracker {
             *last = Instant::now();
             (self.emit)(Progress {
                 done_bytes: self.done.load(Ordering::Relaxed),
-                total_bytes: self.total,
+                total_bytes: self.total.load(Ordering::Relaxed),
                 current: self.current.lock().unwrap().clone(),
             });
         }

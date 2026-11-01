@@ -1,17 +1,21 @@
 [package]
 name = "rawr"
-version = "0.1.0"
-description = "Native Windows app for browsing, testing and extracting RAR archives, built on rars"
+version = "0.2.0"
+description = "Clean, minimal Windows app for RAR archives, built on rars"
 edition = "2021"
-rust-version = "1.89"
+rust-version = "1.92"
 license = "Apache-2.0"
 
 [dependencies]
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
-rars = { version = "=0.12.3", default-features = false, features = ["parallel", "encryption"] }
-native-windows-gui = { version = "1.0.13", default-features = false, features = ["combobox", "embed-resource", "file-dialog", "high-dpi", "list-view", "notice", "progress-bar", "textbox"] }
+rars = { version = "=0.12.3" }
+open = "5"
+rfd = "0.17"
+slint = { version = "1.18", features = ["unstable-winit-030"] }
+winreg = "0.55"
 
 [build-dependencies]
+slint-build = "1.18"
 winresource = "0.1"
 
 [profile.release]
