@@ -41,6 +41,17 @@ global Look {
     out property <color> bad: dark ? #ff8a80 : #c0392b;
 }
 
+global Bar {
+    out property <color> background: #111210;
+    out property <color> line: #2c2e28;
+    out property <color> text: #f3f5ee;
+    out property <color> muted: #a3a69c;
+    out property <color> hover: #262820;
+    out property <color> pressed: #34372d;
+    out property <color> field: #23251f;
+    out property <color> disabled: #5a5d53;
+}
+
 component Glyph {
     in property <string> commands;
     in property <color> tint: Look.muted;
@@ -79,6 +90,9 @@ component IconButton {
     in property <bool> primary;
     in property <bool> enabled: true;
     in property <string> hint;
+    in property <bool> on-bar;
+    in property <image> picture;
+    in property <bool> has-picture;
     callback clicked;
     height: 34px;
     min-width: label == "" ? 34px : 0;
@@ -90,7 +104,7 @@ component IconButton {
         border-radius: 7px;
         background: !root.enabled ? transparent
             : root.primary ? (touch.has-hover ? Look.accent.brighter(10%) : Look.accent)
-            : touch.pressed ? Look.faint : touch.has-hover ? Look.hover : transparent;
+            : touch.pressed ? (root.on-bar ? Bar.pressed : Look.faint) : touch.has-hover ? (root.on-bar ? Bar.hover : Look.hover) : transparent;
         animate background { duration: 90ms; }
     }
     HorizontalLayout {
@@ -98,17 +112,24 @@ component IconButton {
         padding-right: label == "" ? 9px : 13px;
         spacing: 7px;
         alignment: center;
-        Glyph {
+        if root.has-picture: Image {
+            y: (parent.height - self.height) / 2;
+            width: 20px;
+            height: 20px;
+            source: root.picture;
+            colorize: Look.accent;
+        }
+        if !root.has-picture: Glyph {
             y: (parent.height - self.height) / 2;
             commands: root.icon;
-            tint: !root.enabled ? Look.faint : root.primary ? Look.on-accent : Look.text;
+            tint: !root.enabled ? (root.on-bar ? Bar.disabled : Look.faint) : root.primary ? Look.on-accent : root.on-bar ? Bar.text : Look.text;
         }
         if label != "": Text {
             text: root.label;
             vertical-alignment: center;
             font-size: 13px;
             font-weight: root.primary ? 600 : 400;
-            color: !root.enabled ? Look.muted : root.primary ? Look.on-accent : Look.text;
+            color: !root.enabled ? (root.on-bar ? Bar.disabled : Look.muted) : root.primary ? Look.on-accent : root.on-bar ? Bar.text : Look.text;
         }
     }
     touch := TouchArea {
@@ -128,13 +149,13 @@ component CaptionButton {
     accessible-label: root.label;
     accessible-action-default => { root.clicked(); }
     Rectangle {
-        background: !touch.has-hover ? transparent : root.danger ? #c42b1c : Look.hover;
+        background: !touch.has-hover ? transparent : root.danger ? #c42b1c : Bar.hover;
         animate background { duration: 90ms; }
     }
     Glyph {
         size: 13px;
         commands: root.icon;
-        tint: touch.has-hover && root.danger ? #ffffff : Look.text;
+        tint: touch.has-hover && root.danger ? #ffffff : Look.accent;
     }
     touch := TouchArea {
         clicked => { root.clicked(); }
@@ -601,7 +622,7 @@ export component AppWindow inherits Window {
     in-out property <string> create-output;
     in property <string> create-summary;
     in-out property <int> create-format: 1;
-    in-out property <int> create-level: 2;
+    in-out property <int> create-level: 1;
     in-out property <bool> create-more;
     in-out property <bool> create-solid;
     in-out property <string> create-password;
@@ -708,6 +729,7 @@ export component AppWindow inherits Window {
             // ---- top bar ----
             Rectangle {
                 height: 56px;
+                background: Bar.background;
                 TouchArea {
                     pointer-event(event) => {
                         if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
@@ -740,13 +762,13 @@ export component AppWindow inherits Window {
                             text: root.has-archive ? root.archive-name : "";
                             font-size: 15px;
                             font-weight: 600;
-                            color: Look.text;
+                            color: Bar.text;
                             overflow: elide;
                         }
                         if root.has-archive: Text {
                             text: root.archive-detail;
                             font-size: 12px;
-                            color: Look.muted;
+                            color: Bar.muted;
                             overflow: elide;
                         }
                     }
@@ -758,21 +780,23 @@ export component AppWindow inherits Window {
                             width: root.has-archive ? 190px : 0;
                             height: 32px;
                             border-radius: 7px;
-                            background: Look.hover;
+                            background: Bar.field;
                             border-width: search.has-focus ? 1px : 0;
-                            border-color: Look.accent-text;
+                            border-color: Look.accent;
                             HorizontalLayout {
                                 padding-left: 9px;
                                 padding-right: 8px;
                                 spacing: 6px;
                                 VerticalLayout {
                                     alignment: center;
-                                    Glyph { commands: Icons.search; size: 14px; }
+                                    Glyph { commands: Icons.search; size: 14px; tint: Bar.muted; }
                                 }
                                 search := TextInput {
                                     text <=> root.search-text;
                                     font-size: 13px;
-                                    color: Look.text;
+                                    color: Bar.text;
+                                    selection-background-color: Look.accent.with-alpha(0.45);
+                                    selection-foreground-color: Bar.text;
                                     vertical-alignment: center;
                                     single-line: true;
                                     accessible-role: text-input;
@@ -784,7 +808,7 @@ export component AppWindow inherits Window {
                                 visible: root.search-text == "";
                                 text: "Search";
                                 font-size: 13px;
-                                color: Look.muted;
+                                color: Bar.muted;
                                 vertical-alignment: center;
                             }
                         }
@@ -795,6 +819,7 @@ export component AppWindow inherits Window {
                         HorizontalLayout {
                             spacing: 4px;
                             if root.has-archive: IconButton {
+                                on-bar: true;
                                 icon: Icons.plus;
                                 label: "Add";
                                 enabled: !root.busy && root.can-edit;
@@ -808,8 +833,10 @@ export component AppWindow inherits Window {
                                 clicked => { root.extract-clicked(); }
                             }
                             IconButton {
-                                icon: Icons.more;
-                                hint: "More";
+                                on-bar: true;
+                                has-picture: true;
+                                picture: @image-url("gear.png");
+                                hint: "Menu";
                                 clicked => { more-menu.show(); }
                             }
                         }
@@ -840,7 +867,7 @@ export component AppWindow inherits Window {
                 Rectangle {
                     y: parent.height - 1px;
                     height: 1px;
-                    background: Look.faint;
+                    background: Bar.line;
                 }
             }
 
@@ -952,8 +979,10 @@ export component AppWindow inherits Window {
                     VerticalLayout {
                     // Where we are, unless searching
                     Rectangle {
-                        height: 34px;
+                        property <bool> needed: root.crumbs.length > 1 || root.search-text != "";
+                        height: self.needed ? 34px : 8px;
                         HorizontalLayout {
+                            visible: parent.needed;
                             padding-left: 12px;
                             padding-right: 14px;
                             alignment: start;
@@ -1398,7 +1427,7 @@ export component AppWindow inherits Window {
             Field {
                 label: "Compression";
                 ComboBox {
-                    model: ["None (fastest)", "Fast", "Normal", "Best (slowest)"];
+                    model: ["None", "Fast (recommended)", "Smaller (much slower)", "Smallest (slowest)"];
                     current-index <=> root.create-level;
                 }
             }
@@ -1634,6 +1663,18 @@ export component AppWindow inherits Window {
             alignment: end;
             Button { text: "Close"; clicked => { root.sheet = Sheet.none; } }
         }
+    }
+
+    // ---- window outline, above everything but taking no clicks ----
+    // The window's edge covers 1 physical pixel at each side and 2 at the bottom.
+    if !root.maximized: Rectangle {
+        x: 1phx;
+        y: 0;
+        width: parent.width - 2phx;
+        height: parent.height - 2phx;
+        border-radius: 8px;
+        border-width: 3px;
+        border-color: Look.accent;
     }
 
     // ---- resizing, now the system frame is gone ----

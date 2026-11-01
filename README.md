@@ -38,7 +38,7 @@ The app is the single file `target/release/rawr.exe`, which runs without install
 For an installer, install [NSIS](https://nsis.sourceforge.io), then:
 
 ```bash
-makensis /DVERSION=0.3.2 installer\rawr.nsi
+makensis /DVERSION=0.3.4 installer\rawr.nsi
 ```
 
 It installs per-user with no admin prompt and lists rawr in "Open with" and Default
@@ -55,6 +55,7 @@ removes all of that, along with rawr's Explorer menus and settings.
   and listed: path traversal, alternate data streams, device names like `CON`, and
   names differing only by case. Symlinks and junctions are never created.
 - Repair reads the whole archive into memory.
+- Creating is slower than WinRAR: about 3-6x at the Fast level in testing. Separate files compress on many threads, but one big file uses at most about two, and the smaller settings take much longer. rawr defaults to Fast and uses that level for edits too.
 - Extracting a selection skips the other files where it can. Solid and split RAR
   archives and 7z still have to decode what comes before the files you chose.
 - Multi-part ZIP and 7z sets aren't supported.

@@ -181,7 +181,7 @@ impl App {
     fn refresh_crumbs(&self) {
         let state = self.state.borrow();
         let root = Crumb {
-            label: "Archive".into(),
+            label: file_name(&state.path).into(),
             path: "".into(),
         };
         let mut crumbs = vec![root];
@@ -1462,7 +1462,22 @@ fn main() -> Result<(), slint::PlatformError> {
     // Files arrive as separate events, one per path, so gather them until the
     // event loop is idle again.
     let pending: Rc<RefCell<Vec<PathBuf>>> = Rc::default();
+    // The native window only exists once the event loop is running, so its styling
+    // waits for the first event.
+    let styled = std::cell::Cell::new(false);
     app.window.window().on_winit_window_event(move |_, event| {
+        if !styled.replace(true) {
+            slint::Timer::single_shot(std::time::Duration::ZERO, || {
+                with_app(|app| {
+                    app.apply_theme(app.window.get_theme_choice());
+                    let _ = app.window.window().with_winit_window(|window| {
+                        use winit::platform::windows::{CornerPreference, WindowExtWindows};
+                        window.set_undecorated_shadow(true);
+                        window.set_corner_preference(CornerPreference::Round);
+                    });
+                });
+            });
+        }
         match event {
             winit::event::WindowEvent::Resized(_) => {
                 with_app(|app| {
@@ -1515,12 +1530,6 @@ fn main() -> Result<(), slint::PlatformError> {
 
     app.window.show()?;
     app.apply_theme(theme);
-    // Keeps the Windows 11 shadow and rounded corners without the system title bar.
-    let _ = app.window.window().with_winit_window(|window| {
-        use winit::platform::windows::{CornerPreference, WindowExtWindows};
-        window.set_undecorated_shadow(true);
-        window.set_corner_preference(CornerPreference::Round);
-    });
     slint::run_event_loop()?;
     app.window.hide()?;
 
