@@ -432,5 +432,69 @@ fn selecting_from_a_solid_archive_still_works() {
     )
     .unwrap();
     assert_eq!(report.written, 1);
-    assert_eq!(fs::read(out.join("input/sub/b.txt")).unwrap(), vec![7u8; 200_000]);
+    assert_eq!(
+        fs::read(out.join("input/sub/b.txt")).unwrap(),
+        vec![7u8; 200_000]
+    );
+}
+
+#[test]
+fn many_files_unpack_side_by_side_and_damage_is_still_caught() {
+    let dir = scratch("side-by-side");
+    let source = dir.join("source");
+    fs::create_dir_all(source.join("inner")).unwrap();
+    let mut inputs = Vec::new();
+    for index in 0..40u32 {
+        let folder = if index % 2 == 0 {
+            source.join("inner")
+        } else {
+            source.clone()
+        };
+        let path = folder.join(format!("file{index}.bin"));
+        let data: Vec<u8> = (0..50_000u32)
+            .map(|at| (at.wrapping_mul(index + 7) >> 3) as u8)
+            .collect();
+        fs::write(&path, data).unwrap();
+        inputs.push(path);
+    }
+    let path = dir.join("many.rar");
+    let cancel = ReadCancellation::new();
+    authoring::create(request(&path, &inputs, Format::Rar5), &cancel, quiet()).unwrap();
+
+    assert_eq!(engine::test(&path, None, &cancel, quiet()).unwrap(), 40);
+    let out = dir.join("out");
+    extract_all(&path, &out, None);
+    for input in &inputs {
+        let unpacked = out.join(input.file_name().unwrap());
+        assert_eq!(fs::read(unpacked).unwrap(), fs::read(input).unwrap());
+    }
+    assert!(!fs::read_dir(&out).unwrap().any(|entry| entry
+        .unwrap()
+        .file_name()
+        .to_string_lossy()
+        .contains(".rawr-tmp")));
+
+    let mut bytes = fs::read(&path).unwrap();
+    let middle = bytes.len() / 2;
+    bytes[middle] ^= 0xff;
+    fs::write(&path, bytes).unwrap();
+    assert!(engine::test(&path, None, &cancel, quiet()).is_err());
+    let damaged = dir.join("damaged");
+    assert!(engine::extract(
+        ExtractRequest {
+            archive: &path,
+            out_dir: &damaged,
+            password: None,
+            selected: None,
+            overwrite: true,
+        },
+        &cancel,
+        quiet(),
+    )
+    .is_err());
+    assert!(!fs::read_dir(&damaged).unwrap().any(|entry| entry
+        .unwrap()
+        .file_name()
+        .to_string_lossy()
+        .contains(".rawr-tmp")));
 }

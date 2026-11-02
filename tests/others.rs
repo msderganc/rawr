@@ -62,7 +62,11 @@ fn zip_lists_extracts_and_tests() {
     let big = vec![9u8; 300_000];
     make_zip(
         &path,
-        &[("dir/one.txt", b"one"), ("dir\\two.bin", &big), ("日本語.txt", b"uni")],
+        &[
+            ("dir/one.txt", b"one"),
+            ("dir\\two.bin", &big),
+            ("日本語.txt", b"uni"),
+        ],
         None,
         None,
     );
@@ -81,13 +85,18 @@ fn zip_lists_extracts_and_tests() {
 
     let some = root.join("some");
     let chosen = HashSet::from(["dir/one.txt".to_owned()]);
-    assert_eq!(extract(&path, &some, None, Some(chosen)).unwrap().written, 1);
+    assert_eq!(
+        extract(&path, &some, None, Some(chosen)).unwrap().written,
+        1
+    );
     assert!(!some.join("dir/two.bin").exists());
 
     let misnamed = root.join("really-a-zip.rar");
     fs::copy(&path, &misnamed).unwrap();
     assert_eq!(
-        engine::open(&misnamed, None, &ReadCancellation::new()).unwrap().format,
+        engine::open(&misnamed, None, &ReadCancellation::new())
+            .unwrap()
+            .format,
         "ZIP"
     );
 }
@@ -154,7 +163,9 @@ fn zip_passwords() {
         let path = root.join(name);
         make_zip(&path, &[("s.txt", b"hidden text here")], aes, legacy);
         assert!(
-            engine::open(&path, None, &ReadCancellation::new()).unwrap().any_encrypted,
+            engine::open(&path, None, &ReadCancellation::new())
+                .unwrap()
+                .any_encrypted,
             "{name}"
         );
         let out = root.join(format!("{name}-none"));
@@ -195,7 +206,10 @@ fn seven_lists_extracts_and_tests() {
     assert!(engine::test(&path, None, &ReadCancellation::new(), quiet()).unwrap() >= 3);
     let out = root.join("x");
     extract(&path, &out, None, None).unwrap();
-    assert_eq!(fs::read(out.join("inner/b.bin")).unwrap(), vec![3u8; 400_000]);
+    assert_eq!(
+        fs::read(out.join("inner/b.bin")).unwrap(),
+        vec![3u8; 400_000]
+    );
     assert_eq!(fs::read(out.join("inner/日本語.txt")).unwrap(), b"uni");
     assert_eq!(fs::read(out.join("zero.txt")).unwrap(), b"");
     let listed = listing.entries.iter().any(|e| e.name == "inner/empty");
@@ -204,7 +218,10 @@ fn seven_lists_extracts_and_tests() {
 
     let some = root.join("some");
     let chosen = HashSet::from(["a.txt".to_owned()]);
-    assert_eq!(extract(&path, &some, None, Some(chosen)).unwrap().written, 1);
+    assert_eq!(
+        extract(&path, &some, None, Some(chosen)).unwrap().written,
+        1
+    );
     assert!(!some.join("inner/b.bin").exists());
 }
 
@@ -232,7 +249,9 @@ fn seven_passwords_and_damage() {
     sevenz_rust2::compress_to_path(&src, &plain).unwrap();
     let mut bytes = fs::read(&plain).unwrap();
     let middle = bytes.len() / 2;
-    bytes[middle..middle + 16].iter_mut().for_each(|b| *b ^= 0xA5);
+    bytes[middle..middle + 16]
+        .iter_mut()
+        .for_each(|b| *b ^= 0xA5);
     fs::write(&plain, bytes).unwrap();
     assert!(engine::test(&plain, None, &ReadCancellation::new(), quiet()).is_err());
 }
@@ -287,7 +306,10 @@ fn gzip_lists_tests_and_extracts() {
     assert!(listing.size_unknown);
     assert_eq!(listing.entries.len(), 1);
     assert_eq!(listing.entries[0].name, "rates.json");
-    assert_eq!(engine::test(&path, None, &ReadCancellation::new(), quiet()).unwrap(), 1);
+    assert_eq!(
+        engine::test(&path, None, &ReadCancellation::new(), quiet()).unwrap(),
+        1
+    );
     let out = root.join("x");
     assert_eq!(extract(&path, &out, None, None).unwrap().written, 1);
     assert_eq!(fs::read(out.join("rates.json")).unwrap(), body);
@@ -307,13 +329,18 @@ fn gzip_joined_streams_and_tar_names() {
 fn gzip_damage_and_truncation_publish_nothing() {
     let root = scratch("gz-bad");
     let path = root.join("d.gz");
-    let body: Vec<u8> = (0..2_000_000u32).map(|i| (i * 2654435761 >> 13) as u8).collect();
+    let body: Vec<u8> = (0..2_000_000u32)
+        .map(|i| (i.wrapping_mul(2654435761) >> 13) as u8)
+        .collect();
     gzip(&path, &[&body]);
     let good = fs::read(&path).unwrap();
     let mut flipped = good.clone();
     let middle = flipped.len() / 2;
     flipped[middle] ^= 0xFF;
-    for (name, bytes) in [("flipped", flipped), ("cut", good[..good.len() / 2].to_vec())] {
+    for (name, bytes) in [
+        ("flipped", flipped),
+        ("cut", good[..good.len() / 2].to_vec()),
+    ] {
         fs::write(&path, bytes).unwrap();
         assert!(
             engine::test(&path, None, &ReadCancellation::new(), quiet()).is_err(),
@@ -361,7 +388,9 @@ fn unknown_files_are_reported_as_unsupported() {
     let path = root.join("notes.txt");
     fs::write(&path, b"just some text, long enough to read").unwrap();
     assert_eq!(
-        engine::open(&path, None, &ReadCancellation::new()).unwrap_err().kind,
+        engine::open(&path, None, &ReadCancellation::new())
+            .unwrap_err()
+            .kind,
         "unsupported"
     );
 }
@@ -373,6 +402,9 @@ fn unknown_files_are_reported_as_unsupported() {
 fn real_gzip_file_verifies() {
     let path = PathBuf::from(std::env::var("GZ_FILE").expect("GZ_FILE"));
     let started = std::time::Instant::now();
-    assert_eq!(engine::test(&path, None, &ReadCancellation::new(), quiet()).unwrap(), 1);
+    assert_eq!(
+        engine::test(&path, None, &ReadCancellation::new(), quiet()).unwrap(),
+        1
+    );
     println!("verified in {:?}", started.elapsed());
 }

@@ -154,8 +154,25 @@ pub fn runs_code(name: &str) -> bool {
     let extension = name.rsplit_once('.').map_or("", |(_, ext)| ext);
     matches!(
         extension.to_ascii_lowercase().as_str(),
-        "exe" | "msi" | "bat" | "cmd" | "com" | "scr" | "vbs" | "vbe" | "js" | "jse" | "wsf"
-            | "wsh" | "ps1" | "lnk" | "pif" | "hta" | "cpl" | "reg" | "jar"
+        "exe"
+            | "msi"
+            | "bat"
+            | "cmd"
+            | "com"
+            | "scr"
+            | "vbs"
+            | "vbe"
+            | "js"
+            | "jse"
+            | "wsf"
+            | "wsh"
+            | "ps1"
+            | "lnk"
+            | "pif"
+            | "hta"
+            | "cpl"
+            | "reg"
+            | "jar"
     )
 }
 

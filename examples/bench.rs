@@ -2,6 +2,9 @@
 //!   bench create <output.rar> <level> <solid:0|1> <input>...
 //!   bench extract <archive> <folder>
 //!   bench test <archive>
+#[global_allocator]
+static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use rars::ReadCancellation;
 use rawr::authoring::{self, CreateRequest, Format};
 use rawr::engine::{self, ExtractRequest, ProgressFn};
@@ -9,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 fn main() {
+    rawr::release_memory_promptly();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let quiet: ProgressFn = Arc::new(|_| {});
     let cancel = ReadCancellation::new();

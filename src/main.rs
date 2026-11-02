@@ -1,5 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+#[global_allocator]
+static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 slint::include_modules!();
 
 use rars::ReadCancellation;
@@ -202,8 +205,7 @@ impl App {
                 });
             }
         }
-        self.window
-            .set_crumbs(ModelRc::new(VecModel::from(crumbs)));
+        self.window.set_crumbs(ModelRc::new(VecModel::from(crumbs)));
     }
 
     fn sync_selection(&self) {
@@ -331,7 +333,9 @@ impl App {
         self.window.set_busy_title(
             match &job {
                 Job::Open => "Opening",
-                Job::Extract { launch: Some(_), .. } => "Preparing file",
+                Job::Extract {
+                    launch: Some(_), ..
+                } => "Preparing file",
                 Job::Extract { .. } => "Extracting",
                 Job::Test => "Testing",
                 Job::Create { .. } => "Creating archive",
@@ -356,7 +360,8 @@ impl App {
     }
 
     fn on_progress(&self, progress: Progress) {
-        self.window.set_busy_detail(progress.current.as_str().into());
+        self.window
+            .set_busy_detail(progress.current.as_str().into());
         if progress.total_bytes == 0 {
             return;
         }
@@ -397,9 +402,7 @@ impl App {
             }
             Err(error) if error.kind == "cancelled" => {
                 let text = match job {
-                    Some(Job::Extract { .. }) => {
-                        "Cancelled. Files finished before that were kept."
-                    }
+                    Some(Job::Extract { .. }) => "Cancelled. Files finished before that were kept.",
                     Some(Job::Edit(_)) => "Cancelled. The archive is unchanged.",
                     _ => "Cancelled.",
                 };
@@ -431,7 +434,10 @@ impl App {
             self.close_view();
         }
         if error.kind == "unsupported" {
-            self.notify(3, "rawr can't open this kind of file. It opens RAR, ZIP, 7z and gzip.");
+            self.notify(
+                3,
+                "rawr can't open this kind of file. It opens RAR, ZIP, 7z and gzip.",
+            );
             return;
         }
         let can_repair = match job {
@@ -470,10 +476,7 @@ impl App {
                 }
             }
             Outcome::Extracted(report, out_dir, None) => {
-                let mut text = format!(
-                    "Extracted {}",
-                    plural(report.written, "file")
-                );
+                let mut text = format!("Extracted {}", plural(report.written, "file"));
                 if report.skipped_existing > 0 {
                     text += &format!(", skipped {} already there", report.skipped_existing);
                 }
@@ -505,9 +508,14 @@ impl App {
                 self.start(Job::Open);
             }
             Outcome::Repaired(summary, output) => {
-                self.notify(1, format!("{summary} Saved as {}", file_name(&output.display().to_string())));
-                self.state.borrow_mut().notice_folder =
-                    output.parent().map(Path::to_path_buf);
+                self.notify(
+                    1,
+                    format!(
+                        "{summary} Saved as {}",
+                        file_name(&output.display().to_string())
+                    ),
+                );
+                self.state.borrow_mut().notice_folder = output.parent().map(Path::to_path_buf);
                 self.window.set_notice_action("Show folder".into());
             }
         }
@@ -517,7 +525,8 @@ impl App {
         let name = file_name(&archive.path).to_owned();
         shell::remember(&archive.path);
         refresh_recents(&self.window);
-        self.window.set_window_title(format!("{name} - rawr").into());
+        self.window
+            .set_window_title(format!("{name} - rawr").into());
         self.window.set_archive_name(name.as_str().into());
         self.window.set_archive_detail(detail_line(&archive).into());
         self.window.set_info_text(info_text(&archive).into());
@@ -605,7 +614,10 @@ impl App {
             self.open_path(paths[0].display().to_string());
         } else if self.window.get_has_archive() && self.window.get_can_edit() {
             let into = self.state.borrow().folder.clone();
-            self.start(Job::Edit(Edit::Add { inputs: paths, into }));
+            self.start(Job::Edit(Edit::Add {
+                inputs: paths,
+                into,
+            }));
         } else {
             self.begin_create(paths);
         }
@@ -667,7 +679,10 @@ impl App {
             ][window.get_create_split().clamp(0, 4) as usize],
         };
         let mut output = PathBuf::from(window.get_create_output().trim());
-        if output.extension().is_none_or(|extension| !extension.eq_ignore_ascii_case("rar")) {
+        if output
+            .extension()
+            .is_none_or(|extension| !extension.eq_ignore_ascii_case("rar"))
+        {
             output.as_mut_os_string().push(".rar");
         }
         let inputs = self.state.borrow().create_inputs.clone();
@@ -706,7 +721,13 @@ impl App {
     fn begin_rename(&self) {
         let state = self.state.borrow();
         let single = (state.selected.len() == 1)
-            .then(|| state.selected.iter().next().and_then(|&i| state.rows.get(i)))
+            .then(|| {
+                state
+                    .selected
+                    .iter()
+                    .next()
+                    .and_then(|&i| state.rows.get(i))
+            })
             .flatten()
             .cloned();
         drop(state);
@@ -741,8 +762,9 @@ impl App {
             return;
         };
         let count = self.state.borrow().selected.len();
-        self.window
-            .set_confirm_title(format!("Delete {} from the archive?", plural(count, "item")).into());
+        self.window.set_confirm_title(
+            format!("Delete {} from the archive?", plural(count, "item")).into(),
+        );
         self.window
             .set_confirm_body("This changes the archive itself, and can't be undone.".into());
         self.window.set_confirm_action("Delete".into());
@@ -846,7 +868,9 @@ impl App {
         };
         let (archive_path, password, top_level, too_big, locked) = {
             let state = self.state.borrow();
-            let Some(archive) = &state.archive else { return };
+            let Some(archive) = &state.archive else {
+                return;
+            };
             let wanted = |name: &String| names.contains(name);
             // Solid archives decode everything up to the last file wanted.
             let bytes: u64 = archive
@@ -874,7 +898,10 @@ impl App {
             return;
         }
         if locked {
-            self.notify(2, "Extract once with the password before dragging from this archive.");
+            self.notify(
+                2,
+                "Extract once with the password before dragging from this archive.",
+            );
             return;
         }
         let root = {
@@ -1190,7 +1217,10 @@ fn wire(app: &Rc<App>) {
             }
         });
     });
-    on!(on_minimize_clicked, |app| app.window.window().set_minimized(true));
+    on!(on_minimize_clicked, |app| app
+        .window
+        .window()
+        .set_minimized(true));
     on!(on_maximize_clicked, |app| {
         let window = app.window.window();
         window.set_maximized(!window.is_maximized());
@@ -1264,8 +1294,10 @@ fn wire(app: &Rc<App>) {
     on!(on_info_clicked, |app| app.window.set_sheet(Sheet::Info));
     on!(on_about_clicked, |app| app.window.set_sheet(Sheet::About));
     on!(on_settings_clicked, |app| {
-        app.window.set_setting_context_menu(shell::context_menu_enabled());
-        app.window.set_setting_association(shell::association_enabled());
+        app.window
+            .set_setting_context_menu(shell::context_menu_enabled());
+        app.window
+            .set_setting_association(shell::association_enabled());
         app.window.set_settings_note("".into());
         app.window.set_sheet(Sheet::Settings);
     });
@@ -1291,7 +1323,8 @@ fn wire(app: &Rc<App>) {
     });
     on!(on_notice_action_clicked, |app| app.notice_action());
     on!(on_notice_dismissed, |app| app.window.set_notice("".into()));
-    on!(on_crumb_clicked, |app, path| app.enter_folder(path.to_string()));
+    on!(on_crumb_clicked, |app, path| app
+        .enter_folder(path.to_string()));
     on!(on_search_edited, |app| app.refresh_rows());
     on!(on_sort_clicked, |app, column| {
         {
@@ -1312,7 +1345,8 @@ fn wire(app: &Rc<App>) {
     on!(on_row_clicked, |app, index, control, shift| {
         app.click_row(index as usize, control, shift)
     });
-    on!(on_row_activated, |app, index| app.activate_row(index as usize));
+    on!(on_row_activated, |app, index| app
+        .activate_row(index as usize));
     on!(on_row_menu, |app, index, action| {
         let index = index as usize;
         // Acting on a row outside the selection means that row alone.
@@ -1335,7 +1369,8 @@ fn wire(app: &Rc<App>) {
         app.state.borrow_mut().anchor = None;
         app.sync_selection();
     });
-    on!(on_navigate_key, |app, key, shift| app.navigate_key(&key, shift));
+    on!(on_navigate_key, |app, key, shift| app
+        .navigate_key(&key, shift));
     on!(on_password_submitted, |app| {
         app.state.borrow_mut().password = Some(app.window.get_password_text().to_string());
         app.window.set_password_text("".into());
@@ -1364,11 +1399,9 @@ fn wire(app: &Rc<App>) {
         });
     });
     on!(on_browse_extract, |app| {
-        if let Some(folder) = rfd::FileDialog::new()
-            .set_title("Extract to")
-            .pick_folder()
-        {
-            app.window.set_extract_dest(folder.display().to_string().into());
+        if let Some(folder) = rfd::FileDialog::new().set_title("Extract to").pick_folder() {
+            app.window
+                .set_extract_dest(folder.display().to_string().into());
         }
     });
     on!(on_create_confirmed, |app| app.confirm_create());
@@ -1379,7 +1412,8 @@ fn wire(app: &Rc<App>) {
             .add_filter("RAR archive", &["rar"])
             .set_file_name(file_name(&current));
         if let Some(path) = in_folder_of(dialog, &current).save_file() {
-            app.window.set_create_output(path.display().to_string().into());
+            app.window
+                .set_create_output(path.display().to_string().into());
         }
     });
     on!(on_rename_confirmed, |app| app.confirm_rename());
@@ -1399,7 +1433,8 @@ fn wire(app: &Rc<App>) {
             ),
             Err(error) => app.window.set_settings_note(format!("Couldn't change that: {error}").into()),
         }
-        app.window.set_setting_context_menu(shell::context_menu_enabled());
+        app.window
+            .set_setting_context_menu(shell::context_menu_enabled());
     });
     on!(on_default_apps_clicked, |app| {
         if let Err(error) = open::that_detached("ms-settings:defaultapps?registeredAppUser=rawr") {
@@ -1410,13 +1445,17 @@ fn wire(app: &Rc<App>) {
     on!(on_association_toggled, |app, enabled| {
         match shell::set_association(enabled) {
             Ok(()) => app.window.set_settings_note("".into()),
-            Err(error) => app.window.set_settings_note(format!("Couldn't change that: {error}").into()),
+            Err(error) => app
+                .window
+                .set_settings_note(format!("Couldn't change that: {error}").into()),
         }
-        app.window.set_setting_association(shell::association_enabled());
+        app.window
+            .set_setting_association(shell::association_enabled());
     });
 }
 
 fn main() -> Result<(), slint::PlatformError> {
+    rawr::release_memory_promptly();
     let mut args = std::env::args().skip(1);
     let first = args.next();
     let second = args.next();
@@ -1481,8 +1520,7 @@ fn main() -> Result<(), slint::PlatformError> {
         match event {
             winit::event::WindowEvent::Resized(_) => {
                 with_app(|app| {
-                    app.window
-                        .set_maximized(app.window.window().is_maximized());
+                    app.window.set_maximized(app.window.window().is_maximized());
                 });
             }
             winit::event::WindowEvent::HoveredFile(_) => {

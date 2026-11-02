@@ -252,20 +252,12 @@ impl Drop for PartSink {
     }
 }
 
-/// The writer's working-memory budget. It limits how many files compress at once, and
-/// it's a cautious estimate, so real use stays well below it. rars's 256 MB default
-/// leaves most cores idle, so normally this is half of what's free, up to 4 GB.
-///
-/// A big file is the exception: with room to spare, rars compresses it whole, which
-/// measured about 6x slower for about 5% smaller output on one thread either way.
-/// Files up to 32 MB took the same time at any budget and 64 MB ones tipped over.
-fn memory_budget(largest_file: u64) -> u64 {
+/// The writer's working-memory budget: half of what's free, up to 16 GB. It limits how
+/// much compresses at once, and it's a cautious estimate, so real use stays well below
+/// it. rars's 256 MB default leaves most cores idle.
+fn memory_budget() -> u64 {
     const LOWEST: u64 = 256 * 1024 * 1024;
-    const HIGHEST: u64 = 4 * 1024 * 1024 * 1024;
-    const BIG_FILE: u64 = 48 * 1024 * 1024;
-    if largest_file >= BIG_FILE {
-        return LOWEST;
-    }
+    const HIGHEST: u64 = 16 * 1024 * 1024 * 1024;
     #[repr(C)]
     struct MemoryStatus {
         length: u32,
@@ -300,19 +292,8 @@ fn memory_budget(largest_file: u64) -> u64 {
     (status.available_physical / 2).clamp(LOWEST, HIGHEST)
 }
 
-fn largest_item(items: &[Item]) -> u64 {
-    items
-        .iter()
-        .filter_map(|item| match item {
-            Item::File { path, .. } => fs::metadata(path).ok().map(|meta| meta.len()),
-            Item::Directory { .. } => None,
-        })
-        .max()
-        .unwrap_or(0)
-}
-
-fn resources_beside(path: &Path, largest_file: u64) -> WriterResources {
-    let resources = WriterResources::new(memory_budget(largest_file));
+fn resources_beside(path: &Path) -> WriterResources {
+    let resources = WriterResources::new(memory_budget());
     match path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -360,13 +341,12 @@ pub fn create(
         .comment(request.comment.map(|c| c.as_bytes().to_vec()))
         .recovery_percent(request.recovery_percent)
         .volume_size(request.volume_bytes.map(|bytes| bytes as usize));
-    let largest_file = largest_item(&items);
     queue(&mut builder, items)?;
     let reporter = WriteReporter {
         tracker: Tracker::new(0, emit),
         cancel: cancel.clone(),
     };
-    let resources = resources_beside(request.output, largest_file);
+    let resources = resources_beside(request.output);
     let parts = if request.volume_bytes.is_some() {
         let mut sink = PartSink {
             first: request.output.to_path_buf(),
@@ -385,9 +365,15 @@ pub fn create(
 pub enum Edit {
     Delete(HashSet<String>),
     /// `from` is a file or folder name as `open` lists it.
-    Rename { from: String, to: String },
+    Rename {
+        from: String,
+        to: String,
+    },
     /// Added under `into` ("" or ending in '/'), replacing anything of the same name.
-    Add { inputs: Vec<PathBuf>, into: String },
+    Add {
+        inputs: Vec<PathBuf>,
+        into: String,
+    },
     /// An empty comment removes it.
     SetComment(String),
 }
@@ -458,11 +444,9 @@ pub fn edit(
         Edit::Rename { .. } | Edit::SetComment(_) => false,
     };
 
-    let mut largest_file = largest_item(&added);
     let mut kept = Vec::new();
     for member in archive.members() {
         let meta = &member.meta;
-        largest_file = largest_file.max(meta.unpacked_size);
         let name = display_name(family, &meta.name, member.name_is_unicode());
         if meta.is_redirection {
             return Err(message("Archives containing links can't be edited."));
@@ -559,7 +543,7 @@ pub fn edit(
     };
     builder.write_to_path_with_resources(
         archive_path,
-        &resources_beside(archive_path, largest_file),
+        &resources_beside(archive_path),
         Some(&reporter),
     )?;
     Ok(warnings)

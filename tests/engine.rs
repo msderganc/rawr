@@ -40,7 +40,11 @@ fn extract_all(path: &Path, out: &Path, password: Option<&str>) -> engine::Extra
 }
 
 fn assert_sizes_match(listing: &OpenedArchive, out: &Path) {
-    for entry in listing.entries.iter().filter(|e| !e.is_directory && !e.is_link) {
+    for entry in listing
+        .entries
+        .iter()
+        .filter(|e| !e.is_directory && !e.is_link)
+    {
         let written = fs::metadata(out.join(&entry.name))
             .unwrap_or_else(|e| panic!("{}: {e}", entry.name))
             .len();
@@ -52,7 +56,10 @@ fn assert_sizes_match(listing: &OpenedArchive, out: &Path) {
 fn old_names_read_in_the_chosen_encoding() {
     assert_eq!(engine::legacy_text(&[0x80, b'.', b't'], false, 0), "Ç.t");
     assert_eq!(engine::legacy_text(&[0x80, b'.', b't'], false, 3), "А.t");
-    assert_eq!(engine::legacy_text("dir\\ok".as_bytes(), false, 3), "dir/ok");
+    assert_eq!(
+        engine::legacy_text("dir\\ok".as_bytes(), false, 3),
+        "dir/ok"
+    );
 }
 
 #[test]
@@ -81,7 +88,12 @@ fn rejects_names_unsafe_on_windows() {
 
 #[test]
 fn extracts_each_generation() {
-    for name in ["README.RAR", "SOLID.RAR", "stored_rar50.rar", "stored_rar70.rar"] {
+    for name in [
+        "README.RAR",
+        "SOLID.RAR",
+        "stored_rar50.rar",
+        "stored_rar70.rar",
+    ] {
         let path = fixtures().join(name);
         let listing = open(&path, None).unwrap();
         assert!(!listing.entries.is_empty(), "{name}");
@@ -193,7 +205,10 @@ fn symlinks_are_reported_not_created() {
     let path = fixtures().join("symlink.rar");
     let out = scratch("symlink");
     let report = extract_all(&path, &out, None);
-    assert!(report.warnings.iter().any(|w| w.contains("link")), "{report:?}");
+    assert!(
+        report.warnings.iter().any(|w| w.contains("link")),
+        "{report:?}"
+    );
     for entry in fs::read_dir(&out).unwrap().flatten() {
         assert!(!entry.file_type().unwrap().is_symlink());
     }
@@ -214,37 +229,45 @@ fn sweep() {
                 stack.push(path);
                 continue;
             }
-            if !path.extension().is_some_and(|e| e.eq_ignore_ascii_case("rar")) {
+            if !path
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("rar"))
+            {
                 continue;
             }
             let mut last_error = String::new();
-            let outcome = ["", "password", "1234", "test", "Password"].iter().find_map(|p| {
-                let password = (!p.is_empty()).then_some(*p);
-                let listing = open(&path, password).ok()?;
-                let out = scratch("sweep");
-                let result = engine::extract(
-                    ExtractRequest {
-                        archive: &path,
-                        out_dir: &out,
-                        password,
-                        selected: None,
-                        overwrite: true,
-                    },
-                    &ReadCancellation::new(),
-                    quiet(),
-                );
-                match result {
-                    Ok(_) => Some((listing, out)),
-                    Err(error) => {
-                        last_error = error.message;
-                        None
+            let outcome = ["", "password", "1234", "test", "Password"]
+                .iter()
+                .find_map(|p| {
+                    let password = (!p.is_empty()).then_some(*p);
+                    let listing = open(&path, password).ok()?;
+                    let out = scratch("sweep");
+                    let result = engine::extract(
+                        ExtractRequest {
+                            archive: &path,
+                            out_dir: &out,
+                            password,
+                            selected: None,
+                            overwrite: true,
+                        },
+                        &ReadCancellation::new(),
+                        quiet(),
+                    );
+                    match result {
+                        Ok(_) => Some((listing, out)),
+                        Err(error) => {
+                            last_error = error.message;
+                            None
+                        }
                     }
-                }
-            });
+                });
             match outcome {
                 Some((listing, out)) => {
                     // Names this app refuses on purpose won't exist on disk.
-                    let safe = listing.entries.iter().all(|e| safe_relative(&e.name).is_ok());
+                    let safe = listing
+                        .entries
+                        .iter()
+                        .all(|e| safe_relative(&e.name).is_ok());
                     if safe {
                         assert_sizes_match(&listing, &out);
                     }
@@ -252,7 +275,10 @@ fn sweep() {
                 }
                 None => {
                     let reason = open(&path, None).err().map(|e| e.message);
-                    println!("FAILED {} open={reason:?} extract={last_error:?}", path.display());
+                    println!(
+                        "FAILED {} open={reason:?} extract={last_error:?}",
+                        path.display()
+                    );
                     bad += 1;
                 }
             }

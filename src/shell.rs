@@ -102,7 +102,10 @@ fn notify_shell() {
 pub fn set_association(enabled: bool) -> io::Result<()> {
     // 0.3.0 overwrote the .rar default, which no longer belongs to rawr.
     if let Ok(extension) = hkcu().open_subkey_with_flags(RAR_EXTENSION, KEY_ALL_ACCESS) {
-        if extension.get_value::<String, _>("").is_ok_and(|value| value == "rawr.archive") {
+        if extension
+            .get_value::<String, _>("")
+            .is_ok_and(|value| value == "rawr.archive")
+        {
             extension.delete_value("")?;
         }
     }
@@ -223,7 +226,11 @@ pub fn gather_paths(
     let mut names = Vec::new();
     for entry in std::fs::read_dir(dir)?.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
-        let stamp: u128 = name.split('-').next().and_then(|s| s.parse().ok()).unwrap_or(0);
+        let stamp: u128 = name
+            .split('-')
+            .next()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
         if now.saturating_sub(stamp) > STALE_MS {
             let _ = std::fs::remove_file(entry.path());
         } else {

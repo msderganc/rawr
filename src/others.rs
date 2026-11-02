@@ -301,7 +301,12 @@ fn extract_seven(
     // Empty files and folders have no data stream, so the walk may never visit them.
     let reader = ArchiveReader::open(path, seven_password(password)).map_err(seven_error)?;
     let mut done = HashSet::new();
-    for entry in reader.archive().files.iter().filter(|entry| !entry.has_stream && !entry.is_anti_item) {
+    for entry in reader
+        .archive()
+        .files
+        .iter()
+        .filter(|entry| !entry.has_stream && !entry.is_anti_item)
+    {
         let name = clean_name(&entry.name);
         let info = meta(&name, seven_seconds(entry), entry.is_directory);
         drop(state.borrow_mut().open_entry(&info)?);
@@ -496,7 +501,11 @@ pub fn test(
     emit: ProgressFn,
 ) -> Result<usize, AppError> {
     let listing = open(path, kind, password)?;
-    let total = listing.entries.iter().map(|entry| entry.unpacked_size).sum();
+    let total = listing
+        .entries
+        .iter()
+        .map(|entry| entry.unpacked_size)
+        .sum();
     let tracker: Arc<Tracker> = Tracker::new(total, emit);
     if kind == Kind::Gzip {
         tracker.set_current(&gzip_name(path));

@@ -17,6 +17,8 @@ winreg = "0.55"
 zip = { version = "9", default-features = false, features = ["aes-crypto", "deflate", "deflate64", "bzip2", "lzma", "zstd", "time"] }
 sevenz-rust2 = { version = "0.20.2", default-features = false, features = ["aes256", "bzip2", "deflate", "ppmd", "zstd"] }
 drag = "2.1.1"
+mimalloc = { version = "0.1.52", default-features = false }
+libmimalloc-sys = { version = "0.1.49", default-features = false, features = ["extended"] }
 
 [dev-dependencies]
 sevenz-rust2 = { version = "0.20.2", default-features = false, features = ["aes256", "bzip2", "compress", "deflate", "ppmd", "util", "zstd"] }
@@ -40,3 +42,6 @@ opt-level = 3
 
 [profile.release.package.zip]
 opt-level = 3
+
+[patch.crates-io]
+rars = { path = "../rars/crates/rars" }

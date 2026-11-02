@@ -5,15 +5,14 @@ use rars::filename::{decoded_name, relative_path, LegacyNameEncoding};
 use rars::{
     extract_volumes_with_links, test_volumes_with_options_and_callback, Archive, ArchiveFamily,
     ArchiveReadOptions, ArchiveReader, ErrorKind, ExtractedEntryMeta, ExtractedLink,
-    ExtractionDecision,
-    ReadCancellation,
+    ExtractionDecision, ReadCancellation,
 };
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Component, Path, PathBuf};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
@@ -294,24 +293,26 @@ impl Tracker {
 }
 
 struct CountingFile {
-    file: File,
+    file: Arc<File>,
     tracker: Arc<Tracker>,
 }
 
 impl Write for CountingFile {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let written = self.file.write(buf)?;
+        let written = (&*self.file).write(buf)?;
         self.tracker.add(written as u64);
         Ok(written)
     }
     fn flush(&mut self) -> io::Result<()> {
-        self.file.flush()
+        (&*self.file).flush()
     }
 }
 
 /// A file awaiting its checksum. The library verifies each member before asking
 /// for the next output, so the next callback means this one is good.
 struct Pending {
+    // Still open, so the timestamp doesn't need a second open of the file.
+    file: Arc<File>,
     temp: PathBuf,
     destination: PathBuf,
     relative: PathBuf,
@@ -329,26 +330,56 @@ pub(crate) struct Extraction<'a> {
     planned: HashSet<String>,
     written_paths: HashMap<PathBuf, PathBuf>,
     next_temp: u64,
+    // Per-file filesystem calls are most of the cost of unpacking many small files.
+    staging_made: bool,
+    made_dirs: HashSet<PathBuf>,
+    checked_dirs: HashSet<PathBuf>,
     report: ExtractReport,
 }
 
-impl Extraction<'_> {
+impl<'a> Extraction<'a> {
+    fn new(
+        out_dir: &'a Path,
+        staging: PathBuf,
+        family: ArchiveFamily,
+        request: &'a ExtractRequest<'_>,
+        tracker: Arc<Tracker>,
+    ) -> Self {
+        Self {
+            out_dir,
+            staging,
+            family,
+            selected: request.selected.as_ref(),
+            overwrite: request.overwrite,
+            tracker,
+            pending: None,
+            planned: HashSet::new(),
+            written_paths: HashMap::new(),
+            next_temp: 0,
+            staging_made: false,
+            made_dirs: HashSet::new(),
+            checked_dirs: HashSet::new(),
+            report: ExtractReport::default(),
+        }
+    }
+
     fn publish(&mut self) -> rars::Result<()> {
         let Some(pending) = self.pending.take() else {
             return Ok(());
         };
         if let Some(parent) = pending.destination.parent() {
-            fs::create_dir_all(parent)?;
+            if !self.made_dirs.contains(parent) {
+                fs::create_dir_all(parent)?;
+                self.made_dirs.insert(parent.to_path_buf());
+            }
         }
         // Re-check: an earlier member can't have planted a link, but the disk can change.
         rars::filename::checked_output_path(self.out_dir, &pending.relative)?;
-        fs::rename(&pending.temp, &pending.destination)?;
         if let Some(modified) = pending.modified {
-            File::options()
-                .write(true)
-                .open(&pending.destination)?
-                .set_modified(modified)?;
+            pending.file.set_modified(modified)?;
         }
+        drop(pending.file);
+        fs::rename(&pending.temp, &pending.destination)?;
         self.written_paths
             .insert(pending.relative, pending.destination);
         self.report.written += 1;
@@ -375,13 +406,24 @@ impl Extraction<'_> {
         };
         // Windows names ignore case, so "A" and "a" would overwrite each other.
         if !self.planned.insert(name.to_lowercase()) && !meta.is_directory {
-            self.report
-                .warnings
-                .push(format!("Not extracted: {name} (same name as an earlier file)"));
+            self.report.warnings.push(format!(
+                "Not extracted: {name} (same name as an earlier file)"
+            ));
             return Ok(None);
         }
-        let destination = match rars::filename::checked_output_path(self.out_dir, &relative) {
-            Ok(destination) => destination,
+        // This run creates no links, so a folder that passed stays good until publish
+        // checks the whole path again.
+        let parent = relative.parent().map(Path::to_path_buf).unwrap_or_default();
+        let checked = if self.checked_dirs.contains(&parent) {
+            Ok(self.out_dir.join(&relative))
+        } else {
+            rars::filename::checked_output_path(self.out_dir, &relative)
+        };
+        let destination = match checked {
+            Ok(destination) => {
+                self.checked_dirs.insert(parent);
+                destination
+            }
             Err(error) => {
                 self.report
                     .warnings
@@ -422,11 +464,15 @@ impl Extraction<'_> {
             self.report.skipped_existing += 1;
             return Ok(Box::new(CountingSink(self.tracker.clone())));
         }
-        fs::create_dir_all(&self.staging)?;
+        if !self.staging_made {
+            fs::create_dir_all(&self.staging)?;
+            self.staging_made = true;
+        }
         let temp = self.staging.join(self.next_temp.to_string());
         self.next_temp += 1;
-        let file = File::create(&temp)?;
+        let file = Arc::new(File::create(&temp)?);
         self.pending = Some(Pending {
+            file: file.clone(),
             temp,
             destination,
             relative,
@@ -517,6 +563,17 @@ pub fn extract(
     let (_, archives) = load(request.archive, password, cancel)?;
     let family = archives[0].family();
     let total = selected_bytes(&archives, family, request.selected.as_ref());
+    if independent_members(&archives, family, request.selected.as_ref()) {
+        return extract_in_parallel(
+            &request,
+            &archives[0],
+            family,
+            password,
+            cancel,
+            total,
+            emit,
+        );
+    }
     extract_into(&request, total, emit, |state| {
         state.borrow_mut().family = family;
         if can_skip_members(&archives, family, request.selected.as_ref()) {
@@ -543,20 +600,14 @@ pub(crate) fn extract_into(
     fs::create_dir_all(request.out_dir)?;
     let out_dir = fs::canonicalize(request.out_dir)?;
     let staging = out_dir.join(format!(".rawr-tmp-{}", std::process::id()));
-    let state = RefCell::new(Extraction {
-        out_dir: &out_dir,
-        staging: staging.clone(),
+    let state = RefCell::new(Extraction::new(
+        &out_dir,
+        staging.clone(),
         // Names and times from other formats arrive in the RAR 5 convention.
-        family: ArchiveFamily::Rar50Plus,
-        selected: request.selected.as_ref(),
-        overwrite: request.overwrite,
-        tracker: Tracker::new(total, emit),
-        pending: None,
-        planned: HashSet::new(),
-        written_paths: HashMap::new(),
-        next_temp: 0,
-        report: ExtractReport::default(),
-    });
+        ArchiveFamily::Rar50Plus,
+        request,
+        Tracker::new(total, emit),
+    ));
     let result = body(&state);
     let mut state = state.into_inner();
     let result = result.and_then(|()| state.publish().map_err(AppError::from));
@@ -579,6 +630,9 @@ fn can_skip_members(
     let [archive] = archives else {
         return false;
     };
+    if archive.is_solid() {
+        return false;
+    }
     archive.members().all(|member| {
         let name = display_name(family, &member.meta.name, member.name_is_unicode());
         !member.is_solid()
@@ -586,6 +640,139 @@ fn can_skip_members(
             && !member.meta.is_split_after
             && !(member.meta.is_redirection && selected.contains(&name))
     })
+}
+
+/// Members of one non-solid file don't depend on each other, so they can unpack side
+/// by side. Links need the files they copy, and a repeated name needs an order.
+fn independent_members(
+    archives: &[Archive],
+    family: ArchiveFamily,
+    selected: Option<&HashSet<String>>,
+) -> bool {
+    let [archive] = archives else {
+        return false;
+    };
+    if archive.is_solid() {
+        return false;
+    }
+    let mut names = HashSet::new();
+    archive.members().all(|member| {
+        let name = display_name(family, &member.meta.name, member.name_is_unicode());
+        !member.is_solid()
+            && !member.meta.is_split_before
+            && !member.meta.is_split_after
+            && !(member.meta.is_redirection && selected.is_none_or(|set| set.contains(&name)))
+            && names.insert(name.to_lowercase())
+    }) && names.len() > 1
+}
+
+/// Runs one state per worker over `archive`. Workers walk the same list and each member
+/// goes to the first to reach it, so a large file only holds up the worker unpacking it.
+/// Returns every state, so each can be cleaned up, and the first error.
+fn with_workers<S: Send>(
+    archive: &Archive,
+    family: ArchiveFamily,
+    password: Option<&[u8]>,
+    cancel: &ReadCancellation,
+    selected: Option<&HashSet<String>>,
+    states: Vec<S>,
+    open: impl Fn(&mut S, &ExtractedEntryMeta) -> rars::Result<Box<dyn Write>> + Sync,
+    finish: impl Fn(&mut S) -> rars::Result<()> + Sync,
+) -> (Vec<S>, Option<rars::Error>) {
+    let claimed = Mutex::new(HashSet::new());
+    let failed = AtomicBool::new(false);
+    let first_error = Mutex::new(None);
+    let states = std::thread::scope(|scope| {
+        let workers: Vec<_> = states
+            .into_iter()
+            .map(|mut state| {
+                let (claimed, failed, first_error) = (&claimed, &failed, &first_error);
+                let (open, finish) = (&open, &finish);
+                scope.spawn(move || {
+                    let result = archive
+                        .extract_with_control(options(password, cancel), |member| {
+                            let name =
+                                display_name(family, &member.meta.name, member.name_is_unicode());
+                            if failed.load(Ordering::Relaxed)
+                                || selected.is_some_and(|set| !set.contains(&name))
+                                || !claimed.lock().unwrap().insert(name)
+                            {
+                                return Ok(ExtractionDecision::Skip);
+                            }
+                            let mut meta = ExtractedEntryMeta::new(
+                                member.meta.name.clone(),
+                                member.meta.file_time,
+                                member.meta.file_attr,
+                                member.meta.is_directory,
+                            )
+                            .with_attr_source(member.meta.attr_source())
+                            .with_mtime_refinement(member.meta.mtime_refinement);
+                            meta.name_is_unicode = member.name_is_unicode();
+                            Ok(ExtractionDecision::Extract(open(&mut state, &meta)?))
+                        })
+                        .map(|_| ())
+                        .and_then(|()| finish(&mut state));
+                    if let Err(error) = result {
+                        failed.store(true, Ordering::Relaxed);
+                        first_error.lock().unwrap().get_or_insert(error);
+                    }
+                    state
+                })
+            })
+            .collect();
+        workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap())
+            .collect()
+    });
+    (states, first_error.into_inner().unwrap())
+}
+
+/// Workers beyond this mostly wait on the disk, and each holds a dictionary.
+fn worker_count() -> usize {
+    std::thread::available_parallelism().map_or(1, |count| count.get().min(8))
+}
+
+fn extract_in_parallel(
+    request: &ExtractRequest<'_>,
+    archive: &Archive,
+    family: ArchiveFamily,
+    password: Option<&[u8]>,
+    cancel: &ReadCancellation,
+    total: u64,
+    emit: ProgressFn,
+) -> Result<ExtractReport, AppError> {
+    fs::create_dir_all(request.out_dir)?;
+    let out_dir = fs::canonicalize(request.out_dir)?;
+    let tracker = Tracker::new(total, emit);
+    let states = (0..worker_count())
+        .map(|worker| {
+            let staging = out_dir.join(format!(".rawr-tmp-{}-{worker}", std::process::id()));
+            Extraction::new(&out_dir, staging, family, request, tracker.clone())
+        })
+        .collect();
+    let (states, error) = with_workers(
+        archive,
+        family,
+        password,
+        cancel,
+        request.selected.as_ref(),
+        states,
+        |state, meta| state.open_entry(meta),
+        |state| state.publish(),
+    );
+    let mut report = ExtractReport::default();
+    for state in states {
+        // An unpublished file failed or wasn't finished: it goes with the staging folder.
+        let _ = fs::remove_dir_all(&state.staging);
+        report.written += state.report.written;
+        report.skipped_existing += state.report.skipped_existing;
+        report.warnings.extend(state.report.warnings);
+    }
+    match error {
+        Some(error) => Err(error.into()),
+        None => Ok(report),
+    }
 }
 
 fn extract_skipping(
@@ -597,7 +784,11 @@ fn extract_skipping(
     archive
         .extract_with_control(options, |member| {
             let name = display_name(family, &member.meta.name, member.name_is_unicode());
-            if state.borrow().selected.is_some_and(|set| !set.contains(&name)) {
+            if state
+                .borrow()
+                .selected
+                .is_some_and(|set| !set.contains(&name))
+            {
                 return Ok(ExtractionDecision::Skip);
             }
             let mut meta = ExtractedEntryMeta::new(
@@ -663,6 +854,28 @@ pub fn test(
         })
         .collect();
     let tracker = Tracker::new(sizes.values().sum(), emit);
+    if independent_members(&archives, family, None) {
+        let tested = AtomicUsize::new(0);
+        let (_, error) = with_workers(
+            &archives[0],
+            family,
+            password,
+            cancel,
+            None,
+            vec![(); worker_count()],
+            |(), meta| {
+                let name = display_name(family, &meta.name, meta.name_is_unicode);
+                tracker.set_current(&name);
+                tested.fetch_add(1, Ordering::Relaxed);
+                Ok(Box::new(CountingSink(tracker.clone())))
+            },
+            |()| Ok(()),
+        );
+        return match error {
+            Some(error) => Err(error.into()),
+            None => Ok(tested.into_inner()),
+        };
+    }
     let mut tested = 0;
     test_volumes_with_options_and_callback(&archives, options(password, cancel), |meta| {
         let name = display_name(family, &meta.name, meta.name_is_unicode);
