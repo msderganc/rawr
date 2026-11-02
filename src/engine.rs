@@ -153,11 +153,17 @@ pub fn safe_relative(name: &str) -> Result<PathBuf, String> {
     Ok(path)
 }
 
+/// The largest RAR 5 member decoded whole in memory. Larger ones stream, holding
+/// one dictionary rather than the entire file, and go through the threaded decoder.
+const BUFFERED_MEMBER_LIMIT: u64 = 16 * 1024 * 1024;
+
 pub(crate) fn options<'a>(
     password: Option<&'a [u8]>,
     cancel: &'a ReadCancellation,
 ) -> ArchiveReadOptions<'a> {
-    ArchiveReadOptions::with_optional_password(password).with_cancellation(cancel)
+    ArchiveReadOptions::with_optional_password(password)
+        .with_cancellation(cancel)
+        .with_rar50_buffered_decode_limit(BUFFERED_MEMBER_LIMIT)
 }
 
 pub(crate) fn load(
@@ -292,27 +298,213 @@ impl Tracker {
     }
 }
 
+/// A file past this many bytes finishes writing on a thread of its own, so the disk
+/// does not hold up decoding. A small file is done before a thread would pay.
+const BACKGROUND_WRITE_AFTER: u64 = 8 * 1024 * 1024;
+/// How many chunks may wait for the disk, which bounds what a slow one can hold.
+const QUEUED_WRITES: usize = 32;
+
+/// The thread finishing a large file, shared with its `Pending` so nothing is
+/// published until every byte has landed.
+#[derive(Default)]
+struct BackgroundWrites {
+    chunks: Option<std::sync::mpsc::SyncSender<Vec<u8>>>,
+    worker: Option<std::thread::JoinHandle<io::Result<()>>>,
+}
+
+impl BackgroundWrites {
+    fn start(&mut self, file: Arc<File>) {
+        let (chunks, queue) = std::sync::mpsc::sync_channel::<Vec<u8>>(QUEUED_WRITES);
+        self.chunks = Some(chunks);
+        self.worker = Some(std::thread::spawn(move || {
+            for chunk in queue {
+                (&*file).write_all(&chunk)?;
+            }
+            Ok(())
+        }));
+    }
+
+    /// Waits for what is queued, and reports the first write that failed.
+    fn finish(&mut self) -> io::Result<()> {
+        self.chunks = None;
+        match self.worker.take() {
+            Some(worker) => worker
+                .join()
+                .unwrap_or_else(|_| Err(io::Error::other("file writing stopped unexpectedly"))),
+            None => Ok(()),
+        }
+    }
+}
+
+impl Drop for BackgroundWrites {
+    fn drop(&mut self) {
+        let _ = self.finish();
+    }
+}
+
+/// A file up to this size stays in memory until its checksum passes, then a publisher
+/// thread writes it straight to its destination. Creating files is most of the cost
+/// of unpacking small ones, and decoding no longer waits for it.
+const IN_MEMORY_FILE: usize = 1024 * 1024;
+const PUBLISHER_THREADS: usize = 4;
+/// How many verified files may wait, which bounds the memory they hold.
+const QUEUED_FILES: usize = 32;
+
+/// What has been written of one entry so far.
+#[derive(Default)]
+struct EntryOutput {
+    buffer: Vec<u8>,
+    file: Option<Arc<File>>,
+    background: BackgroundWrites,
+}
+
 struct CountingFile {
-    file: Arc<File>,
+    output: Arc<std::sync::Mutex<EntryOutput>>,
+    staging: PathBuf,
+    temp: PathBuf,
     tracker: Arc<Tracker>,
+    written: u64,
 }
 
 impl Write for CountingFile {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let written = (&*self.file).write(buf)?;
+        let mut output = self.output.lock().expect("writes do not panic");
+        if output.file.is_none() {
+            if output.buffer.len() + buf.len() <= IN_MEMORY_FILE {
+                output.buffer.extend_from_slice(buf);
+                self.tracker.add(buf.len() as u64);
+                return Ok(buf.len());
+            }
+            fs::create_dir_all(&self.staging)?;
+            let file = Arc::new(File::create(&self.temp)?);
+            (&*file).write_all(&output.buffer)?;
+            self.written = output.buffer.len() as u64;
+            output.buffer = Vec::new();
+            output.file = Some(file);
+        }
+        let file = output.file.clone().expect("the file was just made");
+        if self.written >= BACKGROUND_WRITE_AFTER {
+            if output.background.worker.is_none() {
+                output.background.start(file);
+            }
+            let queued = output
+                .background
+                .chunks
+                .as_ref()
+                .is_some_and(|chunks| chunks.send(buf.to_vec()).is_ok());
+            if !queued {
+                // The worker has stopped, which only a failed write does.
+                output.background.finish()?;
+                return Err(io::Error::other("file writing stopped unexpectedly"));
+            }
+            self.tracker.add(buf.len() as u64);
+            return Ok(buf.len());
+        }
+        let written = (&*file).write(buf)?;
+        self.written += written as u64;
         self.tracker.add(written as u64);
         Ok(written)
     }
     fn flush(&mut self) -> io::Result<()> {
-        (&*self.file).flush()
+        Ok(())
+    }
+}
+
+/// A verified file on its way to its destination.
+struct FinishedFile {
+    bytes: Vec<u8>,
+    out_dir: PathBuf,
+    relative: PathBuf,
+    destination: PathBuf,
+    staging: PathBuf,
+    temp: PathBuf,
+    modified: Option<std::time::SystemTime>,
+}
+
+impl FinishedFile {
+    fn write(self) -> io::Result<()> {
+        // Re-check: an earlier member can't have planted a link, but the disk can change.
+        rars::filename::checked_output_path(&self.out_dir, &self.relative)
+            .map_err(|error| io::Error::other(error.to_string()))?;
+        // create_new refuses whatever is already there, links included. Replacing it
+        // goes through a rename, which replaces the link rather than following it.
+        let replacing = match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&self.destination)
+        {
+            Ok(file) => Some((file, false)),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => None,
+            Err(error) => return Err(error),
+        };
+        let (file, renamed) = match replacing {
+            Some(opened) => opened,
+            None => {
+                fs::create_dir_all(&self.staging)?;
+                (File::create(&self.temp)?, true)
+            }
+        };
+        (&file).write_all(&self.bytes)?;
+        if let Some(modified) = self.modified {
+            file.set_modified(modified)?;
+        }
+        drop(file);
+        if renamed {
+            fs::rename(&self.temp, &self.destination)?;
+        }
+        Ok(())
+    }
+}
+
+/// Threads writing out verified files.
+struct Publisher {
+    files: std::sync::mpsc::SyncSender<FinishedFile>,
+    workers: Vec<std::thread::JoinHandle<()>>,
+    failure: Arc<Mutex<Option<io::Error>>>,
+}
+
+impl Publisher {
+    fn new() -> Self {
+        let (files, queue) = std::sync::mpsc::sync_channel::<FinishedFile>(QUEUED_FILES);
+        let queue = Arc::new(Mutex::new(queue));
+        let failure = Arc::new(Mutex::new(None));
+        let workers = (0..PUBLISHER_THREADS)
+            .map(|_| {
+                let (queue, failure) = (queue.clone(), failure.clone());
+                std::thread::spawn(move || loop {
+                    let Ok(file) = queue.lock().unwrap().recv() else {
+                        return;
+                    };
+                    if let Err(error) = file.write() {
+                        failure.lock().unwrap().get_or_insert(error);
+                    }
+                })
+            })
+            .collect();
+        Self {
+            files,
+            workers,
+            failure,
+        }
+    }
+
+    /// Waits for every queued file, and reports the first that failed.
+    fn finish(self) -> io::Result<()> {
+        drop(self.files);
+        for worker in self.workers {
+            let _ = worker.join();
+        }
+        match self.failure.lock().unwrap().take() {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
     }
 }
 
 /// A file awaiting its checksum. The library verifies each member before asking
 /// for the next output, so the next callback means this one is good.
 struct Pending {
-    // Still open, so the timestamp doesn't need a second open of the file.
-    file: Arc<File>,
+    output: Arc<std::sync::Mutex<EntryOutput>>,
     temp: PathBuf,
     destination: PathBuf,
     relative: PathBuf,
@@ -327,11 +519,11 @@ pub(crate) struct Extraction<'a> {
     overwrite: bool,
     tracker: Arc<Tracker>,
     pending: Option<Pending>,
+    publisher: Option<Publisher>,
     planned: HashSet<String>,
     written_paths: HashMap<PathBuf, PathBuf>,
     next_temp: u64,
     // Per-file filesystem calls are most of the cost of unpacking many small files.
-    staging_made: bool,
     made_dirs: HashSet<PathBuf>,
     checked_dirs: HashSet<PathBuf>,
     report: ExtractReport,
@@ -353,10 +545,10 @@ impl<'a> Extraction<'a> {
             overwrite: request.overwrite,
             tracker,
             pending: None,
+            publisher: None,
             planned: HashSet::new(),
             written_paths: HashMap::new(),
             next_temp: 0,
-            staging_made: false,
             made_dirs: HashSet::new(),
             checked_dirs: HashSet::new(),
             report: ExtractReport::default(),
@@ -373,16 +565,43 @@ impl<'a> Extraction<'a> {
                 self.made_dirs.insert(parent.to_path_buf());
             }
         }
-        // Re-check: an earlier member can't have planted a link, but the disk can change.
-        rars::filename::checked_output_path(self.out_dir, &pending.relative)?;
-        if let Some(modified) = pending.modified {
-            pending.file.set_modified(modified)?;
+        let mut output = pending.output.lock().expect("writes do not panic");
+        output.background.finish()?;
+        if let Some(file) = output.file.take() {
+            // Re-check: an earlier member can't have planted a link, but the disk can change.
+            rars::filename::checked_output_path(self.out_dir, &pending.relative)?;
+            if let Some(modified) = pending.modified {
+                file.set_modified(modified)?;
+            }
+            drop(file);
+            fs::rename(&pending.temp, &pending.destination)?;
+        } else {
+            let finished = FinishedFile {
+                bytes: std::mem::take(&mut output.buffer),
+                out_dir: self.out_dir.to_path_buf(),
+                relative: pending.relative.clone(),
+                destination: pending.destination.clone(),
+                staging: self.staging.clone(),
+                temp: pending.temp.clone(),
+                modified: pending.modified,
+            };
+            let publisher = self.publisher.get_or_insert_with(Publisher::new);
+            if publisher.files.send(finished).is_err() {
+                return Err(io::Error::other("file publishing stopped unexpectedly").into());
+            }
         }
-        drop(pending.file);
-        fs::rename(&pending.temp, &pending.destination)?;
+        drop(output);
         self.written_paths
             .insert(pending.relative, pending.destination);
         self.report.written += 1;
+        Ok(())
+    }
+
+    /// Waits for every file on its way to its destination.
+    pub(crate) fn finish_publishing(&mut self) -> rars::Result<()> {
+        if let Some(publisher) = self.publisher.take() {
+            publisher.finish()?;
+        }
         Ok(())
     }
 
@@ -464,16 +683,12 @@ impl<'a> Extraction<'a> {
             self.report.skipped_existing += 1;
             return Ok(Box::new(CountingSink(self.tracker.clone())));
         }
-        if !self.staging_made {
-            fs::create_dir_all(&self.staging)?;
-            self.staging_made = true;
-        }
         let temp = self.staging.join(self.next_temp.to_string());
         self.next_temp += 1;
-        let file = Arc::new(File::create(&temp)?);
+        let output = Arc::new(std::sync::Mutex::new(EntryOutput::default()));
         self.pending = Some(Pending {
-            file: file.clone(),
-            temp,
+            output: output.clone(),
+            temp: temp.clone(),
             destination,
             relative,
             modified: rars::timestamp::extracted_system_time(
@@ -483,8 +698,11 @@ impl<'a> Extraction<'a> {
             ),
         });
         Ok(Box::new(CountingFile {
-            file,
+            output,
+            staging: self.staging.clone(),
+            temp,
             tracker: self.tracker.clone(),
+            written: 0,
         }))
     }
 
@@ -496,6 +714,8 @@ impl<'a> Extraction<'a> {
         link: ExtractedLink<'_>,
     ) -> rars::Result<()> {
         self.publish()?;
+        // A copy reads a file this run wrote, so that file has to have landed.
+        self.finish_publishing()?;
         let Some((name, relative, destination)) = self.destination(meta)? else {
             return Ok(());
         };
@@ -610,7 +830,12 @@ pub(crate) fn extract_into(
     ));
     let result = body(&state);
     let mut state = state.into_inner();
-    let result = result.and_then(|()| state.publish().map_err(AppError::from));
+    let result = result.and_then(|()| {
+        state.publish()?;
+        state.finish_publishing().map_err(AppError::from)
+    });
+    // Whatever had been verified still lands, even if a later file failed.
+    let _ = state.finish_publishing();
     // An unpublished file failed or wasn't finished: it goes with the staging folder.
     let _ = fs::remove_dir_all(&staging);
     result?;
@@ -759,10 +984,14 @@ fn extract_in_parallel(
         request.selected.as_ref(),
         states,
         |state, meta| state.open_entry(meta),
-        |state| state.publish(),
+        |state| {
+            state.publish()?;
+            state.finish_publishing()
+        },
     );
     let mut report = ExtractReport::default();
-    for state in states {
+    for mut state in states {
+        let _ = state.finish_publishing();
         // An unpublished file failed or wasn't finished: it goes with the staging folder.
         let _ = fs::remove_dir_all(&state.staging);
         report.written += state.report.written;
