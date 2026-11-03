@@ -6,6 +6,7 @@
 #   speed     wall time on every row
 #   resources peak memory and CPU time on every row, weighted equally
 #   size      archive size on the create rows
+#   overall   the three together, weighted 70% speed, 20% resources, 10% size
 # Extract and test read the same archive on both sides, made by WinRAR. Every
 # archive rawr creates is checked with UnRAR.
 param(
@@ -136,8 +137,11 @@ try {
   $size = Get-Score ($rows | Where-Object RawrSizeMB | ForEach-Object { $_.RawrSizeMB / $_.WinRARSizeMB })
   $slower = @($rows | Where-Object { $_.RawrSeconds -gt $_.WinRARSeconds }).Count
 
+  $overall = [Math]::Pow($speed, 0.7) * [Math]::Pow($resources, 0.2) * [Math]::Pow($size, 0.1)
+
   "best of $Runs. 100 matches WinRAR, higher is better"
   ''
+  'OVERALL    {0,5:N1}   70% speed, 20% resources, 10% size' -f $overall
   'SPEED      {0,5:N1}   faster on {1} of {2} rows' -f $speed, ($rows.Count - $slower), $rows.Count
   'RESOURCES  {0,5:N1}   memory {1:N1}, CPU time {2:N1}' -f $resources, $memory, $cpu
   'SIZE       {0,5:N1}' -f $size
