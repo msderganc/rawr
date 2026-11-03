@@ -139,15 +139,18 @@ fn stored_time(family: ArchiveFamily, modified: Option<std::time::SystemTime>) -
 }
 
 /// Links are left out and reported: following one would archive someone else's file.
+/// A folder listing already holds each child's details, so opening every file to ask
+/// again would cost more than anything else on a folder of small files.
+#[allow(clippy::too_many_arguments)]
 fn collect(
     path: &Path,
+    meta: fs::Metadata,
     name: String,
     family: ArchiveFamily,
     skip: &Path,
     items: &mut Vec<Item>,
     warnings: &mut Vec<String>,
 ) -> Result<(), AppError> {
-    let meta = fs::symlink_metadata(path)?;
     if meta.file_type().is_symlink() {
         warnings.push(format!("Left out: {name} (link)"));
         return Ok(());
@@ -162,7 +165,16 @@ fn collect(
         children.sort_by_key(|child| child.file_name());
         for child in children {
             let child_name = format!("{name}/{}", child.file_name().to_string_lossy());
-            collect(&child.path(), child_name, family, skip, items, warnings)?;
+            let child_meta = child.metadata()?;
+            collect(
+                &child.path(),
+                child_meta,
+                child_name,
+                family,
+                skip,
+                items,
+                warnings,
+            )?;
         }
     } else if path != skip {
         items.push(Item::File {
@@ -188,7 +200,8 @@ fn collect_inputs(
             .ok_or_else(|| message(format!("Can't add {}", input.display())))?
             .to_string_lossy();
         let name = format!("{prefix}{file_name}");
-        collect(input, name, family, skip, &mut items, warnings)?;
+        let meta = fs::symlink_metadata(input)?;
+        collect(input, meta, name, family, skip, &mut items, warnings)?;
     }
     Ok(items)
 }
