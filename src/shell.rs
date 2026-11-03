@@ -334,13 +334,13 @@ mod tests {
             .create_subkey(RAR_EXTENSION)
             .unwrap()
             .0
-            .set_value("", &"WinRAR")
+            .set_value("", &"other.archive")
             .unwrap();
 
         set_association(true).unwrap();
         assert!(association_enabled());
         // The user's default stays theirs.
-        assert_eq!(value(RAR_EXTENSION, ""), "WinRAR");
+        assert_eq!(value(RAR_EXTENSION, ""), "other.archive");
         hkcu()
             .open_subkey_with_flags(RAR_EXTENSION, KEY_ALL_ACCESS)
             .unwrap()
@@ -351,7 +351,7 @@ mod tests {
         hkcu()
             .open_subkey_with_flags(RAR_EXTENSION, KEY_ALL_ACCESS)
             .unwrap()
-            .set_value("", &"WinRAR")
+            .set_value("", &"other.archive")
             .unwrap();
         let open = format!(r"{CLASS}\shell\open\command");
         assert!(value(&open, "").ends_with(r#"" "%1""#));
@@ -369,7 +369,7 @@ mod tests {
         set_association(true).unwrap();
         set_association(false).unwrap();
         assert!(!association_enabled());
-        assert_eq!(value(RAR_EXTENSION, ""), "WinRAR");
+        assert_eq!(value(RAR_EXTENSION, ""), "other.archive");
         assert_eq!(value(REGISTERED_APPLICATIONS, "rawr"), "");
         assert!(!exists(CLASS) && !exists(APPLICATION));
 
@@ -388,7 +388,7 @@ mod tests {
         set_association(true).unwrap();
         remove_everything();
         assert!(!context_menu_enabled() && !association_enabled() && !exists(SETTINGS));
-        assert_eq!(value(RAR_EXTENSION, ""), "WinRAR");
+        assert_eq!(value(RAR_EXTENSION, ""), "other.archive");
 
         let dir = std::env::temp_dir().join(format!("rawr-recent-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();

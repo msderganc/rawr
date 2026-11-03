@@ -290,17 +290,18 @@ fn edit_keeps_dates_and_cancel_leaves_the_original() {
     assert_eq!(fs::read(&path).unwrap(), original);
 }
 
-/// Checks real WinRAR accepts what we write:
-/// UNRAR="C:\Program Files\WinRAR\UnRAR.exe" cargo test winrar -- --ignored --nocapture
+/// Checks an external decoder accepts what we write. It's run as
+/// `<decoder> t -idq -p<password> <archive>`:
+/// RAR_DECODER=path/to/decoder cargo test external_decoder -- --ignored --nocapture
 #[test]
 #[ignore]
-fn winrar_accepts_our_archives() {
-    let unrar = std::env::var("UNRAR").expect("UNRAR");
-    let root = sample_tree("winrar");
+fn external_decoder_accepts_our_archives() {
+    let decoder = std::env::var("RAR_DECODER").expect("RAR_DECODER");
+    let root = sample_tree("external");
     let inputs = [root.join("input")];
     let cancel = ReadCancellation::new();
     let check = |path: &Path, password: Option<&str>| {
-        let mut command = std::process::Command::new(&unrar);
+        let mut command = std::process::Command::new(&decoder);
         command.arg("t").arg("-idq");
         command.arg(format!("-p{}", password.unwrap_or("-")));
         let status = command.arg(path).status().unwrap();

@@ -55,7 +55,7 @@ removes all of that, along with rawr's Explorer menus and settings.
   and listed: path traversal, alternate data streams, device names like `CON`, and
   names differing only by case. Symlinks and junctions are never created.
 - Repair reads the whole archive into memory.
-- Creating is slower than WinRAR: about 3-6x at the Fast level in testing. Separate files compress on many threads, but one big file uses at most about two, and the smaller settings take much longer. rawr defaults to Fast and uses that level for edits too.
+- Creation speed depends on compression level and input layout. Separate files can use more workers than one large file. The default compression level is Fast, including edits.
 - Extracting a selection skips the other files where it can. Solid and split RAR
   archives and 7z still have to decode what comes before the files you chose.
 - Multi-part ZIP and 7z sets aren't supported.
@@ -75,10 +75,10 @@ Run every sample archive from a rars checkout through extraction:
 RARS_FIXTURES=path/to/rars/crates/rars/tests/fixtures cargo test --release --test engine sweep -- --ignored --nocapture
 ```
 
-Check that WinRAR accepts the archives rawr writes:
+Check interoperability using the external decoder configured for the authoring test harness:
 
 ```bash
-UNRAR="C:\Program Files\WinRAR\UnRAR.exe" cargo test --release --test authoring winrar -- --ignored --nocapture
+RAR_DECODER=path/to/decoder cargo test --release --test authoring external_decoder -- --ignored --nocapture
 ```
 
 ## Licences
