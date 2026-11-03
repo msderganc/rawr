@@ -4380,7 +4380,7 @@ checksum = "ca45419789ae5a7899559e9512e58ca889e41f04f1f2445e9f4b290ceccd1d08"
 [[package]]
 name = "rars"
 version = "0.12.3"
-source = "git+https://github.com/msderganc/rawrs-engine?branch=faster-writing#848ef215720401aa011db4b41685736845c9c92e"
+source = "git+https://github.com/msderganc/rawrs-engine?branch=main#2b856fccbf12721a0cf47bfb6a70d76d686733e3"
 dependencies = [
  "aes 0.9.3",
  "aho-corasick",
