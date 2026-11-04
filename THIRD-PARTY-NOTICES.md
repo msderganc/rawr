@@ -16,7 +16,8 @@ From [rars](https://github.com/bitplane/rars), under the Apache License 2.0
 
 Builds of rawr also contain these, under their own licences:
 
-- [rars](https://github.com/bitplane/rars): Apache-2.0
+- [rawrs-engine](https://github.com/msderganc/rawrs-engine), a modified copy of
+  [rars](https://github.com/bitplane/rars): Apache-2.0
 - [Slint](https://slint.dev): used under the Slint Royalty-free Desktop, Mobile, and
   Web Applications License 2.0, which requires the credit shown in rawr's About screen.
   Anyone distributing rawr needs to keep that credit, or use Slint under another of

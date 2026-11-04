@@ -1,7 +1,7 @@
 [package]
 name = "rawr"
-version = "0.3.4"
-description = "Clean, minimal Windows app for RAR archives, built on rars"
+version = "0.4.0"
+description = "Clean, minimal Windows app for RAR archives, built on rawrs-engine"
 edition = "2021"
 rust-version = "1.92"
 license = "MIT"
