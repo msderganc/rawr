@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rawr benchmark</title>
+<meta name="description" content="rawr against WinRAR 7.23: time, memory, CPU time and archive size on five data sets.">
+<style>
+  :root {
+    --bg: #ffffff; --surface: #f6f8fa; --ink: #1f2328; --muted: #59636e; --line: #d1d9e0;
+    --rawr: #2da44e; --other: #1e3a8a; --accent: #1a7f37; --tip: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117; --surface: #151b23; --ink: #f0f6fc; --muted: #9198a1; --line: #3d444d;
+      --rawr: #2ea043; --other: #4c6ef5; --accent: #3fb950; --tip: #1f2630;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 16px 64px; }
+  header { display: flex; align-items: center; gap: 14px; }
+  header img { width: 48px; height: 48px; }
+  h1 { font-size: 24px; margin: 0; }
+  .lede { color: var(--muted); margin: 6px 0 24px; }
+  a { color: var(--accent); }
+  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 28px; }
+  .tile { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+  .tile b { display: block; font-size: 28px; line-height: 1.2; font-variant-numeric: tabular-nums; }
+  .tile span { color: var(--muted); font-size: 13px; }
+  .tile:first-child b { color: var(--accent); }
+  .controls { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin-bottom: 14px; }
+  .seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button {
+    font: inherit; font-size: 13px; color: var(--ink); background: transparent; border: 0;
+    padding: 6px 12px; cursor: pointer; border-right: 1px solid var(--line);
+  }
+  .seg button:last-child { border-right: 0; }
+  .seg button[aria-pressed="true"] { background: var(--surface); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent); }
+  .legend { display: flex; gap: 16px; font-size: 13px; margin: 4px 0 8px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+  .chart-head { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+  .chart-head h2 { font-size: 16px; margin: 0; }
+  .hint { color: var(--muted); font-size: 13px; }
+  #chart { position: relative; }
+  #chart svg { display: block; width: 100%; height: auto; }
+  #chart text { font-family: inherit; }
+  .hit { fill: transparent; cursor: default; }
+  .row:hover .label, .row.active .label { font-weight: 600; }
+  .tip {
+    position: absolute; pointer-events: none; background: var(--tip); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 13px;
+    box-shadow: 0 4px 16px rgb(0 0 0 / .18); min-width: 190px; display: none; z-index: 2;
+  }
+  .tip b { display: block; margin-bottom: 4px; }
+  .tip .k { display: flex; justify-content: space-between; gap: 16px; font-variant-numeric: tabular-nums; }
+  .tip .k i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
+  .tip .verdict { color: var(--muted); margin-top: 4px; }
+  details { margin-top: 18px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; margin-top: 10px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 5px 8px; border-bottom: 1px solid var(--line); }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 600; }
+  .method { color: var(--muted); font-size: 14px; margin-top: 36px; border-top: 1px solid var(--line); padding-top: 16px; }
+  .method ul { padding-left: 20px; }
+  @media (max-width: 640px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <img src="icon.png" alt="">
+    <div>
+      <h1>rawr benchmark</h1>
+    </div>
+  </header>
+  <p class="lede">rawr against WinRAR 7.23's command-line tools, both making RAR 5 archives.
+    Pick a data set and a measure, and hover a row for the exact numbers.
+    <a href="https://github.com/msderganc/rawr">Back to rawr</a></p>
+
+  <div class="tiles" id="tiles"></div>
+
+  <div class="controls">
+    <div class="seg" id="sets" role="group" aria-label="Data set"></div>
+    <div class="seg" id="metrics" role="group" aria-label="Measure"></div>
+  </div>
+
+  <div class="chart-head">
+    <h2 id="chart-title"></h2>
+    <span class="hint" id="chart-hint"></span>
+  </div>
+  <div class="legend"><span><i style="background:var(--rawr)"></i>rawr</span><span><i style="background:var(--other)"></i>WinRAR 7.23</span></div>
+  <div id="chart"><div class="tip" id="tip"></div></div>
+
+  <details>
+    <summary>Show as a table</summary>
+    <table id="table"></table>
+  </details>
+
+  <section class="method">
+    <p>Scores are geometric means where WinRAR is 100 and higher is better. Overall weights
+      speed 70%, resources 20% and size 10%; resources is peak memory and CPU time, weighted equally.</p>
+    <ul>
+      <li>Twelve operations per data set: creating at Fast, levels 2, 4 and 5, and Normal; creating solid at
+        Fast, level 5 and Normal; then extracting and testing a plain and a solid archive. Both sides read the
+        same archives, made by WinRAR.</li>
+      <li>Best of 3 runs. Every archive rawr made was checked with UnRAR.</li>
+      <li>Intel Core i9-12900K, 64 GB, Windows 11, November 2026.</li>
+      <li>Measured with <a href="https://github.com/msderganc/rawr/blob/main/scripts/bench.ps1">scripts/bench.ps1</a>;
+        the raw results are in <a href="bench.csv">bench.csv</a>.</li>
+    </ul>
+  </section>
+</main>
+
+<script>
+const SETS = [
+  ['many', '96 mixed files', '384 MB'],
+  ['node+crates', 'Node.js and Rust source', '113 MB'],
+  ['node.exe', 'One executable', '89 MB'],
+  ['crates', 'Rust source tree', '11 MB, 473 files'],
+  ['random.bin', 'Random data', '64 MB'],
+];
+const METRICS = {
+  time: { name: 'Time', keys: ['RawrSeconds', 'WinRARSeconds'], unit: ' s', digits: 2, hint: 'Seconds, shorter is faster',
+          verdict: (r) => r < 1 ? `rawr ${(1 / r).toFixed(2)}× as fast` : r > 1 ? `rawr takes ${r.toFixed(2)}× as long` : 'A tie' },
+  memory: { name: 'Peak memory', keys: ['RawrMB', 'WinRARMB'], unit: ' MB', digits: 0, hint: 'MB, shorter uses less',
+          verdict: (r) => r > 1 ? `rawr uses ${r.toFixed(1)}× the memory` : `rawr uses ${Math.round(r * 100)}% of the memory` },
+  cpu: { name: 'CPU time', keys: ['RawrCpu', 'WinRARCpu'], unit: ' s', digits: 2, hint: 'CPU seconds across all threads, shorter is better',
+          verdict: (r) => r > 1 ? `rawr uses ${r.toFixed(2)}× the CPU time` : `rawr uses ${Math.round(r * 100)}% of the CPU time` },
+  size: { name: 'Archive size', keys: ['RawrSizeMB', 'WinRARSizeMB'], unit: ' MB', digits: 1, hint: 'MB, shorter is smaller; create operations only',
+          verdict: (r) => r > 1 ? `rawr's archive is ${((r - 1) * 100).toFixed(1)}% larger` : `rawr's archive is ${((1 - r) * 100).toFixed(1)}% smaller` },
+};
+const state = { set: 'many', metric: 'time' };
+let rows = [];
+
+const $ = (id) => document.getElementById(id);
+const label = (op) => op[0].toUpperCase() + op.slice(1);
+const ns = 'http://www.w3.org/2000/svg';
+const el = (tag, attrs = {}, text) => {
+  const node = document.createElementNS(ns, tag);
+  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+  if (text !== undefined) node.textContent = text;
+  return node;
+};
+const ratio = (a, b) => Math.max(a, 0.001) / Math.max(b, 0.001);
+const geo = (xs) => 100 / Math.exp(xs.reduce((s, x) => s + Math.log(x), 0) / xs.length);
+
+function niceStep(max, ticks = 5) {
+  const raw = max / ticks, power = 10 ** Math.floor(Math.log10(raw));
+  return [1, 2, 2.5, 5, 10].map((m) => m * power).find((s) => s >= raw);
+}
+
+function barPath(x, y, w, h) {
+  if (w <= 0) return '';
+  const r = Math.min(4, w / 2, h / 2);
+  return `M${x},${y}h${w - r}a${r},${r} 0 0 1 ${r},${r}v${h - 2 * r}a${r},${r} 0 0 1 -${r},${r}h-${w - r}z`;
+}
+
+function tiles() {
+  const speed = geo(rows.map((r) => ratio(r.RawrSeconds, r.WinRARSeconds)));
+  const memory = geo(rows.map((r) => ratio(r.RawrMB, r.WinRARMB)));
+  const cpu = geo(rows.map((r) => ratio(r.RawrCpu, r.WinRARCpu)));
+  const resources = Math.sqrt(memory * cpu);
+  const size = geo(rows.filter((r) => r.RawrSizeMB).map((r) => r.RawrSizeMB / r.WinRARSizeMB));
+  const overall = speed ** 0.7 * resources ** 0.2 * size ** 0.1;
+  const faster = rows.filter((r) => r.RawrSeconds <= r.WinRARSeconds).length;
+  $('tiles').innerHTML = [
+    ['Overall', overall, 'WinRAR is 100'],
+    ['Speed', speed, `faster on ${faster} of ${rows.length}`],
+    ['Resources', resources, `memory ${memory.toFixed(0)}, CPU ${cpu.toFixed(0)}`],
+    ['Size', size, 'archive size'],
+  ].map(([name, v, note]) => `<div class="tile"><span>${name}</span><b>${v.toFixed(0)}</b><span>${note}</span></div>`).join('');
+}
+
+function buttons(container, items, key) {
+  container.innerHTML = '';
+  for (const [value, text] of items) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = text;
+    b.setAttribute('aria-pressed', String(state[key] === value));
+    b.onclick = () => { state[key] = value; render(); };
+    container.append(b);
+  }
+}
+
+function render() {
+  buttons($('sets'), SETS.map(([v, n]) => [v, n]), 'set');
+  buttons($('metrics'), Object.entries(METRICS).map(([k, m]) => [k, m.name]), 'metric');
+  const metric = METRICS[state.metric];
+  const [mine, theirs] = metric.keys;
+  const set = SETS.find(([v]) => v === state.set);
+  const data = rows.filter((r) => r.Set === state.set && (state.metric !== 'size' || r.RawrSizeMB));
+  $('chart-title').textContent = `${metric.name}: ${set[1]}, ${set[2]}`;
+  $('chart-hint').textContent = metric.hint;
+
+  const fmt = (v) => v.toFixed(metric.digits) + metric.unit;
+  const width = Math.max(320, $('chart').clientWidth), left = 112, right = 24, top = 6, barH = 11, gap = 2, group = 2 * barH + gap + 14;
+  const plot = width - left - right;
+  const max = Math.max(...data.flatMap((r) => [r[mine], r[theirs]]));
+  const step = niceStep(max), axisMax = Math.ceil(max / step) * step;
+  const scale = (v) => (v / axisMax) * plot;
+  const height = top + data.length * group + 26;
+  const svg = el('svg', { viewBox: `0 0 ${width} ${height}`, role: 'img', 'aria-label': `${metric.name} for ${set[1]}, rawr and WinRAR 7.23` });
+
+  for (let v = 0; v <= axisMax + 1e-9; v += step) {
+    const x = left + scale(v);
+    svg.append(el('line', { x1: x, y1: 0, x2: x, y2: height - 22, stroke: 'var(--line)' }));
+    svg.append(el('text', { x, y: height - 6, 'font-size': 12, fill: 'var(--muted)', 'text-anchor': 'middle' }, String(+v.toFixed(2))));
+  }
+
+  const tip = $('tip');
+  data.forEach((r, i) => {
+    const y = top + i * group;
+    const g = el('g', { class: 'row', tabindex: 0 });
+    g.append(el('text', { class: 'label', x: left - 10, y: y + barH + 4, 'font-size': 13, fill: 'var(--ink)', 'text-anchor': 'end' }, label(r.Operation)));
+    g.append(el('path', { d: barPath(left, y, scale(r[mine]), barH), fill: 'var(--rawr)' }));
+    g.append(el('path', { d: barPath(left, y + barH + gap, scale(r[theirs]), barH), fill: 'var(--other)' }));
+    g.append(el('rect', { class: 'hit', x: 0, y: y - 6, width, height: group }));
+    const show = (evt) => {
+      g.classList.add('active');
+      const rr = ratio(r[mine], r[theirs]);
+      tip.innerHTML = `<b>${label(r.Operation)}</b>
+        <div class="k"><span><i style="background:var(--rawr)"></i>rawr</span><span>${fmt(r[mine])}</span></div>
+        <div class="k"><span><i style="background:var(--other)"></i>WinRAR 7.23</span><span>${fmt(r[theirs])}</span></div>
+        <div class="verdict">${metric.verdict(rr)}</div>`;
+      tip.style.display = 'block';
+      const box = $('chart').getBoundingClientRect();
+      const scaleY = box.width / width;
+      const tipW = tip.offsetWidth;
+      let x = evt && evt.clientX ? evt.clientX - box.left + 14 : left * scaleY + 20;
+      if (x + tipW > box.width) x = Math.max(0, x - tipW - 28);
+      tip.style.left = `${x}px`;
+      tip.style.top = `${(y + group) * scaleY}px`;
+    };
+    const hide = () => { g.classList.remove('active'); tip.style.display = 'none'; };
+    g.addEventListener('mousemove', show);
+    g.addEventListener('focus', () => show());
+    g.addEventListener('mouseleave', hide);
+    g.addEventListener('blur', hide);
+    svg.append(g);
+  });
+  $('chart').querySelector('svg')?.remove();
+  $('chart').prepend(svg);
+  tip.style.display = 'none';
+
+  $('table').innerHTML = `<thead><tr><th>Operation</th><th>rawr</th><th>WinRAR 7.23</th><th>rawr ÷ WinRAR</th></tr></thead><tbody>` +
+    data.map((r) => `<tr><td>${label(r.Operation)}</td><td>${fmt(r[mine])}</td><td>${fmt(r[theirs])}</td><td>${ratio(r[mine], r[theirs]).toFixed(2)}</td></tr>`).join('') +
+    '</tbody>';
+}
+
+fetch('bench.csv').then((r) => r.text()).then((text) => {
+  const [header, ...lines] = text.trim().split(/\r?\n/);
+  const keys = header.split(',').map((k) => k.replaceAll('"', ''));
+  rows = lines.map((line) => {
+    const cells = line.split(',').map((c) => c.replaceAll('"', ''));
+    return Object.fromEntries(keys.map((k, i) => [k, i < 2 ? cells[i] : Number(cells[i] || 0)]));
+  });
+  tiles();
+  render();
+  let lastWidth = $('chart').clientWidth;
+  new ResizeObserver(() => {
+    if ($('chart').clientWidth !== lastWidth) { lastWidth = $('chart').clientWidth; render(); }
+  }).observe($('chart'));
+});
+</script>
+</body>
+</html>

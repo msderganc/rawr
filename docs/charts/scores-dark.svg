@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="228" viewBox="0 0 760 228" role="img" aria-label="rawr's benchmark scores against WinRAR 7.23: overall 126, speed 143, resources 92, size 97" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif">
+<title>rawr's benchmark scores against WinRAR 7.23: overall 126, speed 143, resources 92, size 97</title>
+<text x="0" y="20" font-size="15" font-weight="600" fill="#F0F6FC">rawr's scores, where WinRAR 7.23 is 100</text>
+<rect x="0" y="35" width="10" height="10" rx="2" fill="#2EA043"/>
+<text x="16" y="44" font-size="13" fill="#F0F6FC">rawr</text>
+<rect x="64" y="35" width="10" height="10" rx="2" fill="#4C6EF5"/>
+<text x="80" y="44" font-size="13" fill="#F0F6FC">WinRAR 7.23 = 100</text>
+<text x="760" y="44" font-size="12" fill="#9198A1" text-anchor="end">Higher is better</text>
+<line x1="100" y1="58" x2="100" y2="206" stroke="#3D444D" stroke-width="1"/>
+<text x="100" y="222" font-size="11" fill="#9198A1" text-anchor="middle">0</text>
+<line x1="195" y1="58" x2="195" y2="206" stroke="#3D444D" stroke-width="1"/>
+<text x="195" y="222" font-size="11" fill="#9198A1" text-anchor="middle">40</text>
+<line x1="290" y1="58" x2="290" y2="206" stroke="#3D444D" stroke-width="1"/>
+<text x="290" y="222" font-size="11" fill="#9198A1" text-anchor="middle">80</text>
+<line x1="385" y1="58" x2="385" y2="206" stroke="#3D444D" stroke-width="1"/>
+<text x="385" y="222" font-size="11" fill="#9198A1" text-anchor="middle">120</text>
+<line x1="480" y1="58" x2="480" y2="206" stroke="#3D444D" stroke-width="1"/>
+<text x="480" y="222" font-size="11" fill="#9198A1" text-anchor="middle">160</text>
+<text x="90" y="78" font-size="13" fill="#F0F6FC" text-anchor="end" font-weight="600">Overall</text>
+<path d="M100,64h294.66752743695326a4,4 0 0 1 4,4v10a4,4 0 0 1 -4,4h-294.66752743695326z" fill="#2EA043"/>
+<text x="528" y="78" font-size="14" fill="#F0F6FC" text-anchor="end" font-weight="600">126</text>
+<text x="540" y="78" font-size="12" fill="#9198A1">speed 70%, resources 20%, size 10%</text>
+<text x="90" y="112" font-size="13" fill="#F0F6FC" text-anchor="end">Speed</text>
+<path d="M100,98h334.66747688311307a4,4 0 0 1 4,4v10a4,4 0 0 1 -4,4h-334.66747688311307z" fill="#2EA043"/>
+<text x="528" y="112" font-size="14" fill="#F0F6FC" text-anchor="end">143</text>
+<text x="540" y="112" font-size="12" fill="#9198A1">wall time</text>
+<text x="90" y="146" font-size="13" fill="#F0F6FC" text-anchor="end">Resources</text>
+<path d="M100,132h215.27062580675323a4,4 0 0 1 4,4v10a4,4 0 0 1 -4,4h-215.27062580675323z" fill="#2EA043"/>
+<text x="528" y="146" font-size="14" fill="#F0F6FC" text-anchor="end">92</text>
+<text x="540" y="146" font-size="12" fill="#9198A1">memory 82, CPU time 104</text>
+<text x="90" y="180" font-size="13" fill="#F0F6FC" text-anchor="end">Size</text>
+<path d="M100,166h225.88186307998788a4,4 0 0 1 4,4v10a4,4 0 0 1 -4,4h-225.88186307998788z" fill="#2EA043"/>
+<text x="528" y="180" font-size="14" fill="#F0F6FC" text-anchor="end">97</text>
+<text x="540" y="180" font-size="12" fill="#9198A1">archive size</text>
+<line x1="337.5" y1="56" x2="337.5" y2="206" stroke="#4C6EF5" stroke-width="2" stroke-dasharray="5 3"/>
+</svg>

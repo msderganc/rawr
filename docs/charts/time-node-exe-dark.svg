@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="502" viewBox="0 0 760 502" role="img" aria-label="One executable, 89 MB: seconds per operation, rawr and WinRAR 7.23" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif">
+<title>One executable, 89 MB: seconds per operation, rawr and WinRAR 7.23</title>
+<text x="0" y="20" font-size="15" font-weight="600" fill="#F0F6FC">One executable, 89 MB</text>
+<rect x="0" y="35" width="10" height="10" rx="2" fill="#2EA043"/>
+<text x="16" y="44" font-size="13" fill="#F0F6FC">rawr</text>
+<rect x="64" y="35" width="10" height="10" rx="2" fill="#4C6EF5"/>
+<text x="80" y="44" font-size="13" fill="#F0F6FC">WinRAR 7.23</text>
+<text x="760" y="44" font-size="12" fill="#9198A1" text-anchor="end">Seconds, shorter is faster</text>
+<line x1="120" y1="58" x2="120" y2="478" stroke="#3D444D" stroke-width="1"/>
+<text x="120" y="494" font-size="11" fill="#9198A1" text-anchor="middle">0</text>
+<line x1="266" y1="58" x2="266" y2="478" stroke="#3D444D" stroke-width="1"/>
+<text x="266" y="494" font-size="11" fill="#9198A1" text-anchor="middle">0.5</text>
+<line x1="412" y1="58" x2="412" y2="478" stroke="#3D444D" stroke-width="1"/>
+<text x="412" y="494" font-size="11" fill="#9198A1" text-anchor="middle">1</text>
+<line x1="558" y1="58" x2="558" y2="478" stroke="#3D444D" stroke-width="1"/>
+<text x="558" y="494" font-size="11" fill="#9198A1" text-anchor="middle">1.5</text>
+<line x1="704" y1="58" x2="704" y2="478" stroke="#3D444D" stroke-width="1"/>
+<text x="704" y="494" font-size="11" fill="#9198A1" text-anchor="middle">2</text>
+<text x="110" y="78" font-size="12" fill="#F0F6FC" text-anchor="end">Fast</text>
+<path d="M120,64h111.2212436a4,4 0 0 1 4,4v2a4,4 0 0 1 -4,4h-111.2212436z" fill="#2EA043"/>
+<text x="240.22124359999998" y="73" font-size="11" fill="#9198A1">0.39</text>
+<path d="M120,76h131.625678a4,4 0 0 1 4,4v2a4,4 0 0 1 -4,4h-131.625678z" fill="#4C6EF5"/>
+<text x="260.625678" y="85" font-size="11" fill="#9198A1">0.46</text>
+<text x="110" y="112" font-size="12" fill="#F0F6FC" text-anchor="end">Level 2</text>
+<path d="M120,98h222.81129199999998a4,4 0 0 1 4,4v2a4,4 0 0 1 -4,4h-222.81129199999998z" fill="#2EA043"/>
+<text x="351.811292" y="107" font-size="11" fill="#9198A1">0.78</text>
+<path d="M120,110h231.85882439999997a4,4 0 0 1 4,4v2a4,4 0 0 1 -4,4h-231.85882439999997z" fill="#4C6EF5"/>
+<text x="360.8588244" y="119" font-size="11" fill="#9198A1">0.81</text>
+<text x="110" y="146" font-size="12" fill="#F0F6FC" text-anchor="end">Level 4</text>
+<path d="M120,132h365.837564a4,4 0 0 1 4,4v2a4,4 0 0 1 -4,4h-365.837564z" fill="#2EA043"/>
+<text x="494.837564" y="141" font-size="11" fill="#9198A1">1.27</text>
+<path d="M120,144h441.48644199999995a4,4 0 0 1 4,4v2a4,4 0 0 1 -4,4h-441.48644199999995z" fill="#4C6EF5"/>
+<text x="570.4864419999999" y="153" font-size="11" fill="#9198A1">1.53</text>
+<text x="110" y="180" font-size="12" fill="#F0F6FC" text-anchor="end">Level 5</text>
+<path d="M120,166h442.226954a4,4 0 0 1 4,4v2a4,4 0 0 1 -4,4h-442.226954z" fill="#2EA043"/>
+<text x="571.226954" y="175" font-size="11" fill="#9198A1">1.53</text>
+<path d="M120,178h478.4641832a4,4 0 0 1 4,4v2a4,4 0 0 1 -4,4h-478.4641832z" fill="#4C6EF5"/>
+<text x="607.4641832" y="187" font-size="11" fill="#9198A1">1.65</text>
+<text x="110" y="214" font-size="12" fill="#F0F6FC" text-anchor="end">Normal</text>
+<path d="M120,200h295.31606a4,4 0 0 1 4,4v2a4,4 0 0 1 -4,4h-295.31606z" fill="#2EA043"/>
+<text x="424.31606" y="209" font-size="11" fill="#9198A1">1.03</text>
+<path d="M120,212h315.7991884a4,4 0 0 1 4,4v2a4,4 0 0 1 -4,4h-315.7991884z" fill="#4C6EF5"/>
+<text x="444.7991884" y="221" font-size="11" fill="#9198A1">1.10</text>
+<text x="110" y="248" font-size="12" fill="#F0F6FC" text-anchor="end">Extract</text>
+<path d="M120,234h68.5433412a4,4 0 0 1 4,4v2a4,4 0 0 1 -4,4h-68.5433412z" fill="#2EA043"/>
+<text x="197.5433412" y="243" font-size="11" fill="#9198A1">0.25</text>
+<path d="M120,246h94.9891096a4,4 0 0 1 4,4v2a4,4 0 0 1 -4,4h-94.9891096z" fill="#4C6EF5"/>
+<text x="223.9891096" y="255" font-size="11" fill="#9198A1">0.34</text>
+<text x="110" y="282" font-size="12" fill="#F0F6FC" text-anchor="end">Test</text>
+<path d="M120,268h68.7292868a4,4 0 0 1 4,4v2a4,4 0 0 1 -4,4h-68.7292868z" fill="#2EA043"/>
+<text x="197.7292868" y="277" font-size="11" fill="#9198A1">0.25</text>
+<path d="M120,280h86.89913279999999a4,4 0 0 1 4,4v2a4,4 0 0 1 -4,4h-86.89913279999999z" fill="#4C6EF5"/>
+<text x="215.8991328" y="289" font-size="11" fill="#9198A1">0.31</text>
+<text x="110" y="316" font-size="12" fill="#F0F6FC" text-anchor="end">Solid fast</text>
+<path d="M120,302h117.9958188a4,4 0 0 1 4,4v2a4,4 0 0 1 -4,4h-117.9958188z" fill="#2EA043"/>
+<text x="246.9958188" y="311" font-size="11" fill="#9198A1">0.42</text>
+<path d="M120,314h131.573118a4,4 0 0 1 4,4v2a4,4 0 0 1 -4,4h-131.573118z" fill="#4C6EF5"/>
+<text x="260.573118" y="323" font-size="11" fill="#9198A1">0.46</text>
+<text x="110" y="350" font-size="12" fill="#F0F6FC" text-anchor="end">Solid level 5</text>
+<path d="M120,336h473.5377052a4,4 0 0 1 4,4v2a4,4 0 0 1 -4,4h-473.5377052z" fill="#2EA043"/>
+<text x="602.5377052" y="345" font-size="11" fill="#9198A1">1.64</text>
+<path d="M120,348h487.06881a4,4 0 0 1 4,4v2a4,4 0 0 1 -4,4h-487.06881z" fill="#4C6EF5"/>
+<text x="616.06881" y="357" font-size="11" fill="#9198A1">1.68</text>
+<text x="110" y="384" font-size="12" fill="#F0F6FC" text-anchor="end">Solid normal</text>
+<path d="M120,370h281.9590748a4,4 0 0 1 4,4v2a4,4 0 0 1 -4,4h-281.9590748z" fill="#2EA043"/>
+<text x="410.9590748" y="379" font-size="11" fill="#9198A1">0.98</text>
+<path d="M120,382h323.0058652a4,4 0 0 1 4,4v2a4,4 0 0 1 -4,4h-323.0058652z" fill="#4C6EF5"/>
+<text x="452.0058652" y="391" font-size="11" fill="#9198A1">1.12</text>
+<text x="110" y="418" font-size="12" fill="#F0F6FC" text-anchor="end">Solid extract</text>
+<path d="M120,404h67.8232692a4,4 0 0 1 4,4v2a4,4 0 0 1 -4,4h-67.8232692z" fill="#2EA043"/>
+<text x="196.8232692" y="413" font-size="11" fill="#9198A1">0.25</text>
+<path d="M120,416h95.28519759999999a4,4 0 0 1 4,4v2a4,4 0 0 1 -4,4h-95.28519759999999z" fill="#4C6EF5"/>
+<text x="224.2851976" y="425" font-size="11" fill="#9198A1">0.34</text>
+<text x="110" y="452" font-size="12" fill="#F0F6FC" text-anchor="end">Solid test</text>
+<path d="M120,438h61.1562084a4,4 0 0 1 4,4v2a4,4 0 0 1 -4,4h-61.1562084z" fill="#2EA043"/>
+<text x="190.1562084" y="447" font-size="11" fill="#9198A1">0.22</text>
+<path d="M120,450h85.830004a4,4 0 0 1 4,4v2a4,4 0 0 1 -4,4h-85.830004z" fill="#4C6EF5"/>
+<text x="214.830004" y="459" font-size="11" fill="#9198A1">0.31</text>
+</svg>
